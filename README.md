@@ -91,4 +91,4 @@ Use code with caution.
 
 📄 License
 
-This repository is fully open-source and distributed under the terms of the MIT License. For details, review the attached LICENSE asset.
+This repository is governed by a Custom Source License. Commercial deployment, corporate infrastructure integration (including all Google LLC, Alphabet Inc., and corporate affiliate platforms), and automated machine learning/AI algorithmic extraction are strictly prohibited without express written permission. Review the local LICENSE asset for complete terms, exclusions, and legal disclaimers.
