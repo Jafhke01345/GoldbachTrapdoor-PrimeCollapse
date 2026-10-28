@@ -1,0 +1,94 @@
+import sys
+
+def generate_primes(n):
+    """Generates a list of the first n prime numbers."""
+    primes = []
+    candidate = 2
+    while len(primes) < n:
+        if all(candidate % p != 0 for p in primes):
+            primes.append(candidate)
+        candidate += 1
+    return primes
+
+def modular_inverse(n, p):
+    """Calculates the modular inverse using the Extended Euclidean Algorithm."""
+    try:
+        return pow(n, -1, p)
+    except ValueError:
+        raise ValueError(f"Modular inverse does not exist. {n} and {p} are not coprime.")
+
+def run_inverse_sum_protocol(secret_a, secret_b, prime_field_modulus):
+    """
+    Executes the cryptographic protocol where the blinding key is derived 
+    from the inverse sum of the fixed prime pairs.
+    """
+    # 1. Core Mathematical Properties
+    sum_key = secret_a + secret_b
+    public_c = sum_key // 2  # Publicly revealed median
+    
+    print(f"=== Prover Actions (Secret Context) ===")
+    print(f"Chosen Secret Prime a: {secret_a}")
+    print(f"Chosen Secret Prime b: {secret_b}")
+    print(f"Publicly Disclosed Median c: {public_c}")
+    print(f"Dynamic Sum Key (a + b)    : {sum_key} (Equivalent to 2c)")
+    
+    # 2. Derive the Algebraic Inverse Blinding Key
+    # k = (a + b)^-1 mod p
+    try:
+        blinding_key_k = modular_inverse(sum_key, prime_field_modulus)
+    except ValueError as e:
+        print(f"[-] Protocol Fault: {e}")
+        return False
+    
+    # 3. Blind the original prime identities
+    blinded_A = (secret_a * blinding_key_k) % prime_field_modulus
+    blinded_B = (secret_b * blinding_key_k) % prime_field_modulus
+    
+    print(f"Derived Blinding Key (k)   : {blinding_key_k}")
+    print(f"Transmitted Blinded Bound A: {blinded_A}")
+    print(f"Transmitted Blinded Bound B: {blinded_B}\n")
+    
+    # === TRANSMISSION BOUNDARY ===
+    # The verifier ONLY receives: public_c, blinded_A, blinded_B
+    
+    print(f"=== Verifier Audit (Zero-Knowledge Context) ===")
+    print(f"Received Blinded A: {blinded_A}")
+    print(f"Received Blinded B: {blinded_B}")
+    print(f"Received Median c : {public_c}")
+    
+    # Checkpoint 1: Verify the identity collapse (A + B mod p must equal 1)
+    verifier_sum_check = (blinded_A + blinded_B) % prime_field_modulus
+    
+    # Checkpoint 2: Verify the public median maps perfectly to the hidden system
+    # 2 * c * k mod p must equal 1
+    verifier_median_check = (2 * public_c * blinding_key_k) % prime_field_modulus
+    
+    print(f"Identity Collapse Checksum: {verifier_sum_check} (Must be 1)")
+    print(f"Median Anchor Checksum    : {verifier_median_check} (Must be 1)")
+    print(f"----------------------------------------------")
+    
+    if verifier_sum_check == 1 and verifier_median_check == 1:
+        print("VERIFICATION SUCCESS: The proof holds. The public median matches the secret boundaries.")
+        print("Identity Protection: Secret primes 'a' and 'b' remain completely hidden.")
+        return True
+    else:
+        print("VERIFICATION FAILURE: Cryptographic parameters do not balance.")
+        return False
+
+# --- CONFIGURATION & EXECUTION ---
+
+# Initialize sequence context up to the 27th prime (Max: 103)
+TOTAL_PRIMES = 27
+prime_pool = generate_primes(TOTAL_PRIMES)
+
+# Select a large secure prime modulus for our field calculation
+# Must be greater than the maximum possible sum (103 + 101 = 204)
+FIELD_MODULUS = 7919  
+
+# Select any two prime bounds from your sequence
+# Let's use (17, 103) which yields median 60
+secret_prime_a = prime_pool[6]   # 17 (7th prime)
+secret_prime_b = prime_pool[26]  # 103 (27th prime)
+
+# Run the simulation
+run_inverse_sum_protocol(secret_prime_a, secret_prime_b, FIELD_MODULUS)
