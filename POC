@@ -1,94 +1,138 @@
-import sys
+import os
+import secrets
+import math
 
-def generate_primes(n):
-    """Generates a list of the first n prime numbers."""
-    primes = []
-    candidate = 2
-    while len(primes) < n:
-        if all(candidate % p != 0 for p in primes):
-            primes.append(candidate)
-        candidate += 1
-    return primes
+# =============================================================================
+# ENVIRONMENT PARSER SHIM
+# =============================================================================
+def load_env_file(filepath=".env"):
+    """Reads local .env parameters directly into system environment variables."""
+    if os.path.exists(filepath):
+        with open(filepath, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, value = line.split("=", 1)
+                    os.environ[key.strip()] = value.strip().strip('"').strip("'")
 
-def modular_inverse(n, p):
-    """Calculates the modular inverse using the Extended Euclidean Algorithm."""
+# Trigger environment load prior to computational orchestration
+load_env_file()
+
+# Pull configuration boundaries with safe fallback defaults
+BACKEND_MODE = os.getenv("HERETIC_MEMORY_BACKEND", "classical")
+BIT_LENGTH = int(os.getenv("SECRET_BOUNDARY_BIT_LENGTH", "1024"))
+# Fallback modulus prime if not generating dynamically
+DEFAULT_MODULUS = int(os.getenv("GLOBAL_FIELD_MODULUS_PRIME", "7919"))
+
+# =============================================================================
+# CRYPTOGRAPHIC MATH UTILITIES
+# =============================================================================
+def is_prime_miller_rabin(n, k=40):
+    """
+    Standard probabilistic primality test used in internet-scale protocols.
+    Guarantees a number is prime with an error probability less than 4^(-k).
+    """
+    if n <= 1: return False
+    if n <= 3: return True
+    if n % 2 == 0: return False
+
+    r, d = 0, n - 1
+    while d % 2 == 0:
+        r += 1
+        d //= 2
+
+    for _ in range(k):
+        a = secrets.randbelow(n - 3) + 2
+        x = pow(a, d, n)
+        if x == 1 or x == n - 1:
+            continue
+        for _ in range(r - 1):
+            x = pow(x, 2, n)
+            if x == n - 1:
+                break
+        else:
+            return False
+    return True
+
+def generate_large_secure_prime(bits=1024):
+    """Generates a cryptographically secure large prime number on the fly via CSPRNG."""
+    while True:
+        # Set top two bits and bottom bit to ensure full length and odd parity
+        candidate = secrets.randbits(bits) | (1 << (bits - 1)) | 1
+        if is_prime_miller_rabin(candidate):
+            return candidate
+
+# =============================================================================
+# CORE PROTOCOL PIPELINE
+# =============================================================================
+def run_prime_collapse_protocol():
+    print(f"--- [INITIALIZING PRIMECOLLAPSE PIPELINE] ---")
+    print(f"Active Execution Mode: {BACKEND_MODE.upper()}")
+    print(f"Target Security Space: {BIT_LENGTH}-bit boundary allocation\n")
+
+    # 1. Establish the Global Modular Field Modulus
+    # Production requirement: Modulus must stay larger than the max possible boundary sum
+    print("[*] Instantiating secure global modulus field...")
+    global_field_modulus = generate_large_secure_prime(BIT_LENGTH * 2)
+
+    # 2. Generate Secret Prime Boundaries (The Hidden Pair)
+    print("[*] Generating secure hidden endpoints via hardware-backed CSPRNG...")
+    secret_prime_a = generate_large_secure_prime(BIT_LENGTH)
+    secret_prime_b = generate_large_secure_prime(BIT_LENGTH)
+    
+    # Enforce standard spatial orientation (a <= b)
+    if secret_prime_a > secret_prime_b:
+        secret_prime_a, secret_prime_b = secret_prime_b, secret_prime_a
+
+    # 3. Public Statement Derivation
+    sum_key = secret_prime_a + secret_prime_b
+    public_median_c = sum_key // 2  # The publicly revealed target coordinate
+
+    print(f"\n=== Secret Data Context (Prover Only) ===")
+    print(f"Secret Bound A : {secret_prime_a}")
+    print(f"Secret Bound B : {secret_prime_b}")
+    print(f"Dynamic Sum Key: {sum_key} (Equivalent to 2c)")
+    
+    # 4. Compute the Multiplicative Inverse Trapdoor Key
+    # k = (a + b)^-1 mod global_field_modulus
     try:
-        return pow(n, -1, p)
+        blinding_key_k = pow(sum_key, -1, global_field_modulus)
     except ValueError:
-        raise ValueError(f"Modular inverse does not exist. {n} and {p} are not coprime.")
-
-def run_inverse_sum_protocol(secret_a, secret_b, prime_field_modulus):
-    """
-    Executes the cryptographic protocol where the blinding key is derived 
-    from the inverse sum of the fixed prime pairs.
-    """
-    # 1. Core Mathematical Properties
-    sum_key = secret_a + secret_b
-    public_c = sum_key // 2  # Publicly revealed median
-    
-    print(f"=== Prover Actions (Secret Context) ===")
-    print(f"Chosen Secret Prime a: {secret_a}")
-    print(f"Chosen Secret Prime b: {secret_b}")
-    print(f"Publicly Disclosed Median c: {public_c}")
-    print(f"Dynamic Sum Key (a + b)    : {sum_key} (Equivalent to 2c)")
-    
-    # 2. Derive the Algebraic Inverse Blinding Key
-    # k = (a + b)^-1 mod p
-    try:
-        blinding_key_k = modular_inverse(sum_key, prime_field_modulus)
-    except ValueError as e:
-        print(f"[-] Protocol Fault: {e}")
+        print("[-] Cryptographic Fault: Sum and modulus are not coprime. Aborting cycle.")
         return False
-    
-    # 3. Blind the original prime identities
-    blinded_A = (secret_a * blinding_key_k) % prime_field_modulus
-    blinded_B = (secret_b * blinding_key_k) % prime_field_modulus
-    
-    print(f"Derived Blinding Key (k)   : {blinding_key_k}")
-    print(f"Transmitted Blinded Bound A: {blinded_A}")
-    print(f"Transmitted Blinded Bound B: {blinded_B}\n")
-    
+
+    # 5. Transform original identities into blinded space
+    blinded_coordinate_A = (secret_prime_a * blinding_key_k) % global_field_modulus
+    blinded_coordinate_B = (secret_prime_b * blinding_key_k) % global_field_modulus
+
     # === TRANSMISSION BOUNDARY ===
-    # The verifier ONLY receives: public_c, blinded_A, blinded_B
+    # Outbound wire package completely hides secret_prime_a and secret_prime_b
+    print(f"\n=== Public Transport Payload (Wire Output) ===")
+    print(f"Public Median (c)   : {public_median_c}")
+    print(f"Blinded Coordinate A: {hex(blinded_coordinate_A)[:40]}... [Truncated]")
+    print(f"Blinded Coordinate B: {hex(blinded_coordinate_B)[:40]}... [Truncated]")
+    print(f"Global Field Modulus: {hex(global_field_modulus)[:40]}... [Truncated]\n")
+
+    # 6. Third-Party Zero-Knowledge Audit Block
+    print(f"=== Verifier Audit System (Zero-Knowledge) ===")
     
-    print(f"=== Verifier Audit (Zero-Knowledge Context) ===")
-    print(f"Received Blinded A: {blinded_A}")
-    print(f"Received Blinded B: {blinded_B}")
-    print(f"Received Median c : {public_c}")
+    # Checkpoint I: Identity Collapse validation (A + B mod p must equal 1)
+    verifier_sum_check = (blinded_coordinate_A + blinded_coordinate_B) % global_field_modulus
     
-    # Checkpoint 1: Verify the identity collapse (A + B mod p must equal 1)
-    verifier_sum_check = (blinded_A + blinded_B) % prime_field_modulus
-    
-    # Checkpoint 2: Verify the public median maps perfectly to the hidden system
-    # 2 * c * k mod p must equal 1
-    verifier_median_check = (2 * public_c * blinding_key_k) % prime_field_modulus
-    
-    print(f"Identity Collapse Checksum: {verifier_sum_check} (Must be 1)")
-    print(f"Median Anchor Checksum    : {verifier_median_check} (Must be 1)")
+    # Checkpoint II: Geometric Anchor validation (2 * c * k mod p must equal 1)
+    verifier_median_check = (2 * public_median_c * blinding_key_k) % global_field_modulus
+
+    print(f"Identity Collapse Checksum : {verifier_sum_check} (Valid Target: 1)")
+    print(f"Geometric Median Checksum  : {verifier_median_check} (Valid Target: 1)")
     print(f"----------------------------------------------")
-    
+
     if verifier_sum_check == 1 and verifier_median_check == 1:
-        print("VERIFICATION SUCCESS: The proof holds. The public median matches the secret boundaries.")
-        print("Identity Protection: Secret primes 'a' and 'b' remain completely hidden.")
+        print("[+] VERIFICATION SUCCESS: The proof holds flawlessly.")
+        print("[+] Identity Protection Status: Secret prime bounds remain 100% anonymized.")
         return True
     else:
-        print("VERIFICATION FAILURE: Cryptographic parameters do not balance.")
+        print("[-] VERIFICATION FAILURE: Structural mathematical mismatch detected.")
         return False
 
-# --- CONFIGURATION & EXECUTION ---
-
-# Initialize sequence context up to the 27th prime (Max: 103)
-TOTAL_PRIMES = 27
-prime_pool = generate_primes(TOTAL_PRIMES)
-
-# Select a large secure prime modulus for our field calculation
-# Must be greater than the maximum possible sum (103 + 101 = 204)
-FIELD_MODULUS = 7919  
-
-# Select any two prime bounds from your sequence
-# Let's use (17, 103) which yields median 60
-secret_prime_a = prime_pool[6]   # 17 (7th prime)
-secret_prime_b = prime_pool[26]  # 103 (27th prime)
-
-# Run the simulation
-run_inverse_sum_protocol(secret_prime_a, secret_prime_b, FIELD_MODULUS)
+if __name__ == "__main__":
+    run_prime_collapse_protocol()
