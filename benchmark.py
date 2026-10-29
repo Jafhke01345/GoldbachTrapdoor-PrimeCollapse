@@ -64,7 +64,8 @@ def run_soundness():
         got = fn()
         ok = (got == expected)
         failures += (not ok)
-        print(f"  [{'PASS' if ok else 'FAIL\】] {description} (verifier returned {got})")
+        print(f"  [{'PASS' if ok else 'FAIL'}] {description} (verifier returned {got})")
+    # the honest prover must also refuse out-of-range input
     try:
         Z.prove(-3, 1001)
         print("  [FAIL] honest prover accepted an out-of-range value")
@@ -96,6 +97,7 @@ def run_timing(iterations=10):
     print(f"  avg verify : {sum(verify_t) / iterations:.4f}s")
     print(f"  proof size : ~{size / 1024:.1f} KiB (linear in N; Bulletproofs would be logarithmic)")
     return 0 if valid_all else 1
+
 
 if __name__ == "__main__":
     bad = run_soundness()

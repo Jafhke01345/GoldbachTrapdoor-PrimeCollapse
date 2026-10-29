@@ -3,8 +3,8 @@ Toy: provable primes via a Pocklington chain (Pratt-style certificate, but only 
 needs to be factored, which is what makes it practical).
 
 Pocklington's criterion: let n = F*R + 1 with F > sqrt(n) and F fully factored.
-If there is an a with
-    a**(n-1) == 1 (mod n)   and   gcd(a**((n-1)//f) - 1, n) == 1   for every prime f | F,
+If there is an `a` with
+    a^(n-1) == 1 (mod n)   and   gcd(a^((n-1)/f) - 1, n) == 1   for every prime f | F,
 then n is prime.
 
 Here F = 2*q with q a smaller PROVEN prime and R < q, so F^2 > n.
@@ -18,6 +18,7 @@ import time
 from math import gcd
 
 BASE_BITS = 20
+
 
 # ------------------------------------------------------------------ base case
 def small_is_prime(n):
@@ -38,6 +39,7 @@ def gen_small_prime(bits):
         n = secrets.randbits(bits) | (1 << (bits - 1)) | 1
         if small_is_prime(n):
             return n
+
 
 # ------------------------------------------------------------------ prover side
 def find_witness(n, q):
@@ -65,6 +67,7 @@ def gen_provable_prime(bits):
             chain.append({"n": n, "R": R, "a": a})
             return n, chain
 
+
 # ------------------------------------------------------------------ verifier side
 def verify_chain(chain):
     """Return the certified prime at the top of the chain, or None if any step fails."""
@@ -80,11 +83,12 @@ def verify_chain(chain):
             return None                                  # need F = 2q > sqrt(n)
         if pow(a, n - 1, n) != 1:
             return None                                  # Fermat condition
-        for f in (2, q):
+        for f in (2, q):                                 # prime factors of F
             if gcd(pow(a, (n - 1) // f, n) - 1, n) != 1:
                 return None
         q = n
     return q
+
 
 # ------------------------------------------------------------------ demo
 def main():
@@ -109,6 +113,7 @@ def main():
     bad = [dict(s) for s in chain]
     bad[1]["a"] = 1
     print("  witness a = 1       ->", verify_chain(bad))
+    # try to certify a composite of the right shape n = 2*q*R + 1 with a guessed witness
     q = chain[-2]["n"]
     R = chain[-1]["R"]
     while True:
@@ -120,6 +125,7 @@ def main():
     bad[-1] = {"n": cand, "R": R, "a": 2}
     print("  composite candidate ->", verify_chain(bad))
     print("  untouched chain     ->", verify_chain(chain) == n)
+
 
 if __name__ == "__main__":
     main()
