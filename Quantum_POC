@@ -39,13 +39,23 @@ classical prime states balancing around c.
 
 ## 2. Technical Execution Mechanics
 
-1. **State Initialization:** A quantum co-processor prepares the system into a combined state $|\Psi\rangle$, where the probability amplitudes of the registers are uniformly distributed across the Goldbach collision space matching the sequence parameters.
-2. **Homomorphic Blinding Phase:** The algebraic inverse-sum logic is applied to the entangled registers using a quantum gate array:
-  $$|A\rangle = |a \cdot k\rangle \pmod p$$
-  $$|B\rangle = |b \cdot k\rangle \pmod p$$
-  Where $k = (a + b)^{-1} \pmod p$. Because the operations are computed on a superposition, the invariant property holds across all probable universes simultaneously:
-  $$|A\rangle + |B\rangle \equiv |1\rangle \pmod p$$
-3. **The Event Collapse:** When an external system invokes a verification check and reads the value of $c$, the fluid state drops into a singular physical reality. The system randomly select one of the valid prime pairs that satisfy the public median constraint, perfectly preserving the identity collapse checkpoint ($A + B = 1$).
+1. **State Initialization:** A quantum co-processor prepares the system into a joint entangled state $|\Psi
+angle$ modulated by a secret phase rotation $\theta$:
+   $$|\Psi
+angle = \frac{1}{\sqrt{N}} \sum e^{i\theta(a+b)} |a
+angle|b
+angle$$
+2. **Unitary Inverse Transformation:** The architecture routes the state through a unitary inverse gate array $U_{inv}$ to bind the phase directly to the multiplicative inverse register:
+   $$U_{inv} |a
+angle|b
+angle|0
+angle = |a \cdot k
+angle|b \cdot k
+angle \otimes |e^{i\theta}
+angle$$
+   This ensures that $A$ and $B$ are inextricably bound to the secret phase $\theta$, rendering classical interception of $c$ mathematically decoupled from the blinding operator.
+3. **The Event Collapse:** Public observation of $|c
+angle$ triggers instantaneous wave function collapse, forcing registers into fixed classical prime states. Any attempt at unauthorized measurement before this event induces decoherence and verification failure.
 
 ---
 

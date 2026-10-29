@@ -95,8 +95,17 @@ def run_prime_collapse_protocol():
     
     # 4. Compute the Multiplicative Inverse Trapdoor Key
     # k = (a + b)^-1 mod global_field_modulus
+    # 4. Compute the Multiplicative Inverse Trapdoor Key with Secret Scalar (r)
+    # To prevent unblinding via k = (2c)^-1 mod p, we introduce a secret random scalar r.
+    # r must be coprime to the global field modulus p.
+    while True:
+        secret_scalar_r = secrets.randbelow(global_field_modulus - 2) + 2
+        if math.gcd(secret_scalar_r, global_field_modulus) == 1:
+            break
+
     try:
-        blinding_key_k = pow(sum_key, -1, global_field_modulus)
+        # Updated blinding key equation: k = r * (a + b)^-1 mod global_field_modulus
+        blinding_key_k = (secret_scalar_r * pow(sum_key, -1, global_field_modulus)) % global_field_modulus
     except ValueError:
         print("[-] Cryptographic Fault: Sum and modulus are not coprime. Aborting cycle.")
         return False
@@ -116,11 +125,12 @@ def run_prime_collapse_protocol():
     # 6. Third-Party Zero-Knowledge Audit Block
     print(f"=== Verifier Audit System (Zero-Knowledge) ===")
     
-    # Checkpoint I: Identity Collapse validation (A + B mod p must equal 1)
-    verifier_sum_check = (blinded_coordinate_A + blinded_coordinate_B) % global_field_modulus
+    # Checkpoint I: Identity Collapse validation ((A + B) * r^-1 mod p must equal 1)
+    r_inv = pow(secret_scalar_r, -1, global_field_modulus)
+    verifier_sum_check = ((blinded_coordinate_A + blinded_coordinate_B) * r_inv) % global_field_modulus
     
-    # Checkpoint II: Geometric Anchor validation (2 * c * k mod p must equal 1)
-    verifier_median_check = (2 * public_median_c * blinding_key_k) % global_field_modulus
+    # Checkpoint II: Geometric Anchor validation (2 * c * k * r^-1 mod p must equal 1)
+    verifier_median_check = (2 * public_median_c * blinding_key_k * r_inv) % global_field_modulus
 
     print(f"Identity Collapse Checksum : {verifier_sum_check} (Valid Target: 1)")
     print(f"Geometric Median Checksum  : {verifier_median_check} (Valid Target: 1)")
