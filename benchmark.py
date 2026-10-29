@@ -1,102 +1,105 @@
-import os
-import subprocess
-import time
+"""
+benchmark.py - soundness tests + timing for zkrp_toy.py.
+
+Part 1 checks that the verifier ACCEPTS honest proofs and REJECTS every cheating attempt
+(a benchmark that only runs honest cases can't tell a sound verifier from a broken one).
+Part 2 times 10 honest prove/verify cycles on random inputs.
+
+Exit code is 0 only if every soundness test behaves as expected.
+"""
+import copy
 import secrets
+import sys
+import time
 
-def load_env_file(filepath=".env"):
-    if os.path.exists(filepath):
-        with open(filepath, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, value = line.split("=", 1)
-                    os.environ[key.strip()] = value.strip().strip('"').strip("'")
+import zkrp_toy as Z
 
-load_env_file()
-BIT_LENGTH = int(os.getenv("SECRET_BOUNDARY_BIT_LENGTH", "1024"))
 
-def is_prime(n, k=40):
-    if n <= 1: return False
-    if n <= 3: return True
-    if n % 2 == 0: return False
-    r, d = 0, n - 1
-    while d % 2 == 0:
-        r += 1
-        d //= 2
-    for _ in range(k):
-        a = secrets.randbelow(n - 3) + 2
-        x = pow(a, d, n)
-        if x == 1 or x == n - 1: continue
-        for _ in range(r - 1):
-            x = pow(x, 2, n)
-            if x == n - 1: break
-        else: return False
-    return True
+def tamper_tuple(proof, index):
+    lst = list(proof)
+    lst[index] = (lst[index] + 1) % Z.Q
+    return tuple(lst)
 
-def generate_prime(bits):
-    while True:
-        candidate = secrets.randbits(bits) | (1 << (bits - 1)) | 1
-        if is_prime(candidate): return candidate
 
-def benchmark_python():
-    start = time.perf_counter()
-    p = generate_prime(BIT_LENGTH * 2)
-    a = generate_prime(BIT_LENGTH)
-    b = generate_prime(BIT_LENGTH)
-    if a > b: a, b = b, a
-    sum_key = a + b
-    public_c = sum_key // 2
-    secret_r = secrets.randbelow(p - 2) + 2
-    k = (secret_r * pow(sum_key, -1, p)) % p
-    blinded_A = (a * k) % p
-    blinded_B = (b * k) % p
-    v_sum = (blinded_A + blinded_B) % p
-    v_med = (2 * public_c * k * pow(secret_r, -1, p)) % p
-    end = time.perf_counter()
-    return end - start
+def soundness_tests():
+    """Each entry: (description, expected verifier result, function returning actual result)."""
+    base = Z.prove(1009, 2003)
 
-def benchmark_cpp():
-    # Use absolute path for native binary as requested by environment setup
-    bin_path = "C:/Users/tripp/GoldbachTrapdoor-PrimeCollapse/cpp_backend/prime_collapse_native"
-    if not os.path.exists(bin_path):
-        return None
+    def tampered(mutator):
+        pub = copy.deepcopy(base)
+        mutator(pub)
+        return Z.verify(pub)
 
-    start = time.perf_counter()
+    def swap_range_proof(pub):
+        other = Z.prove(1013, 1999)
+        pub["rp_a"] = other["rp_a"]
+
+    def tamper_bit_proof(pub):
+        Bs, proofs = pub["rp_x"]
+        proofs[5] = tamper_tuple(proofs[5], 4)                         # nudge a z-value
+
+    def tamper_bit_commitment(pub):
+        Bs, proofs = pub["rp_a"]
+        Bs[3] = Bs[3] * Z.G % Z.P
+
+    return [
+        ("honest proof is accepted",                          True,  lambda: Z.verify(base)),
+        ("different pair, same c, is accepted",               True,  lambda: Z.verify(Z.prove(1013, 1999))),
+        ("wrong public c is rejected",                        False, lambda: Z.verify(base, claimed_c=base["c"] + 1)),
+        ("negative a is rejected",                            False, lambda: Z.verify(Z.prove(-3, 1001, _cheat=True))),
+        ("a > b (ordering violated) is rejected",             False, lambda: Z.verify(Z.prove(2003, 1009, _cheat=True))),
+        ("a above 2^N (wrap-around attempt) is rejected",     False, lambda: Z.verify(Z.prove(2 ** Z.N_BITS + 5, 2 ** Z.N_BITS + 9, _cheat=True))),
+        ("tampered commitment Ca is rejected",                False, lambda: tampered(lambda p: p.__setitem__("Ca", p["Ca"] * Z.G % Z.P))),
+        ("tampered Schnorr response z is rejected",           False, lambda: tampered(lambda p: p.__setitem__("z", (p["z"] + 1) % Z.Q))),
+        ("tampered bit OR-proof is rejected",                 False, lambda: tampered(tamper_bit_proof)),
+        ("tampered bit commitment is rejected",               False, lambda: tampered(tamper_bit_commitment)),
+        ("range proof from another statement is rejected",    False, lambda: tampered(swap_range_proof)),
+    ]
+
+
+def run_soundness():
+    print("=== PART 1: SOUNDNESS TESTS ===")
+    failures = 0
+    for description, expected, fn in soundness_tests():
+        got = fn()
+        ok = (got == expected)
+        failures += (not ok)
+        print(f"  [{'PASS' if ok else 'FAIL\】] {description} (verifier returned {got})")
     try:
-        subprocess.run([bin_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-    except subprocess.CalledProcessError:
-        return None
-    end = time.perf_counter()
-    return end - start
+        Z.prove(-3, 1001)
+        print("  [FAIL] honest prover accepted an out-of-range value")
+        failures += 1
+    except ValueError:
+        print("  [PASS] honest prover refuses out-of-range input")
+    return failures
 
-def run_performance_suite(iterations=5):
-    print(f"=== STARTING PRIMECOLLAPSE BENCHMARKING ENGINE ===")
-    print(f"Evaluating {iterations} iterations at {BIT_LENGTH}-bit space...\n")
-    
-    py_times = []
-    cpp_times = []
-    
+
+def run_timing(iterations=10):
+    print(f"\n=== PART 2: TIMING ({iterations} honest cycles, random inputs) ===")
+    print(f"group: {Z.P.bit_length()}-bit safe prime (toy) | range: [0, 2^{Z.N_BITS})")
+    prove_t, verify_t, valid_all = [], [], True
+    size = 0
     for i in range(iterations):
-        print(f"[*] Running cycle {i+1}/{iterations}...", end=" ")
-        py_t = benchmark_python()
-        py_times.append(py_t)
-        cpp_t = benchmark_cpp()
-        if cpp_t:
-            cpp_times.append(cpp_t)
-        print("Done")
-        
-    avg_py = sum(py_times) / iterations
-    avg_cpp = sum(cpp_times) / len(cpp_times) if cpp_times else 0
-    speedup = avg_py / avg_cpp if avg_cpp > 0 else 0
-
-    print("\n================ PERFORMANCE MATRIX ================")
-    print(f"Python Average Runtime : {avg_py:.5f} seconds")
-    print(f"C++ Native Average     : {avg_cpp:.5f} seconds")
-    if speedup > 0:
-        print(f"Performance Multiplier : {speedup:.2f}x Faster Execution")
-    else:
-        print("C++ Native binary not found or failed to run.")
-    print("====================================================")
+        a = secrets.randbelow(2 ** (Z.N_BITS - 2))
+        b = a + 2 * secrets.randbelow(2 ** (Z.N_BITS - 3))             # keeps a + b even, b >= a
+        t0 = time.perf_counter()
+        pub = Z.prove(a, b)
+        t1 = time.perf_counter()
+        ok = Z.verify(pub)
+        t2 = time.perf_counter()
+        prove_t.append(t1 - t0)
+        verify_t.append(t2 - t1)
+        valid_all &= ok
+        size = Z.proof_size_bytes(pub)
+        print(f"  cycle {i + 1:>2}/{iterations}: valid={ok}  prove {t1 - t0:.4f}s  verify {t2 - t1:.4f}s")
+    print(f"\n  avg prove  : {sum(prove_t) / iterations:.4f}s")
+    print(f"  avg verify : {sum(verify_t) / iterations:.4f}s")
+    print(f"  proof size : ~{size / 1024:.1f} KiB (linear in N; Bulletproofs would be logarithmic)")
+    return 0 if valid_all else 1
 
 if __name__ == "__main__":
-    run_performance_suite()
+    bad = run_soundness()
+    bad += run_timing()
+    print("\nRESULT:", "ALL CHECKS PASSED" if bad == 0 else f"{bad} CHECK(S) FAILED")
+    print("Reminder: toy parameters, no primality proof, unaudited. See README.md.")
+    sys.exit(1 if bad else 0)
