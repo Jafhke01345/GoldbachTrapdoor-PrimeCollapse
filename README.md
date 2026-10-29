@@ -1,4 +1,3 @@
-
 PrimeCollapse: Inverse-Sum Blinding Protocol (Goldbach Trapdoor)
 
 An elegant, production-scale Zero-Knowledge Range Proof (ZKRP) primitive designed to solve a unique spatial boundary constraint problem: How do you publicly verify a mathematical median (\(c\)) while keeping the underlying boundary anchors (\(a, b\)) completely hidden?
