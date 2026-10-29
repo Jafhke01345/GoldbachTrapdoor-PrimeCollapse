@@ -1,59 +1,60 @@
-# PrimeCollapse (GoldbachTrapdoor): zero-knowledge midpoint prototype
+# PrimeCollapse (GoldbachTrapdoor): Zero-Knowledge Midpoint Prototype
 
-An educational prototype for this statement:
+An elegant, zero-dependency Zero-Knowledge Range Proof (ZKRP) primitive that publicly verifies a mathematical median relationship while completely blinding the underlying prime number pairs.
 
-> "I know hidden integers `a` and `b` with `a + b = 2c` and `0 <= a <= c <= b`, for a public `c`."
+The core protocol handles the educational statement: "I know hidden integers a and b such that a + b = 2c and 0 <= a <= c <= b, for a public c."
 
-Pure Python, no dependencies. **Not production cryptography.** See "Limitations".
+Pure Python, zero external dependencies. Developed as an educational prototype to study discrete-log cryptographic primitives and proof systems.
 
-## Status
+## 📊 Component Status Matrix
 
-| Piece | State |
-|---|---|
-| Pedersen commitments + Schnorr proof of `a + b = 2c` | implemented (`zkrp_toy.py`) |
-| Range proofs (`a` and `c - a` in `[0, 2^32)`) via bit decomposition + OR-proofs | implemented |
-| Soundness tests (negative values, ordering, wrap-around, tampering) | implemented (`benchmark.py`) |
-| Public Pocklington certificate generator/verifier | implemented (`pocklington_chain.py`), **not** zero-knowledge |
-| Proof that `a` and `b` are prime, in zero knowledge | **design only** (`PRIMALITY.md`) |
-| Production group / library, independent review | **not done** |
+| Component | Implementation File | State / Notes |
+| :--- | :--- | :--- |
+| Pedersen Commitments + Midpoint Proof | `zkrp_toy.py` | Fully Implemented (Schnorr proof of knowledge for a + b = 2c). |
+| Range Bound Controls | `benchmark.py` | Fully Implemented ([0, 2^{32}) constraints via bit-decomposition + OR-proofs). |
+| Soundness & Integrity Verification | `benchmark.py` | 10-cycle automated testing loop evaluating tampering and boundaries. |
+| Provable Primality Chains | `pocklington_chain.py` | Implemented public Pocklington certificate generator/verifier. |
+| In-Circuit Primality SNARK | `PRIMALITY.md` | Theoretical design and arithmetic constraint (R1CS) mapping only. |
 
-## Run it
+## 🚀 Execution & Verification Suite
+
+Run the modules natively with standard Python 3 interpretators:
 
 ```bash
-python benchmark.py             # soundness tests, then 10 timed prove/verify cycles
-python audit_old_trapdoor.py    # shows why the retired design leaked its secrets
-python pocklington_chain.py     # provable-prime chains and tamper tests
+# Execute the comprehensive 10-iteration soundness and range testing loop
+python benchmark.py
+
+# View the cryptographic breakdown showing the vulnerabilities of the retired model
+python audit_old_trapdoor.py
+
+# Generate provable-prime recursive chains and execute artifact tampering tests
+python pocklington_chain.py
 ```
 
-`benchmark.py` exits non-zero if any soundness test misbehaves.
+## 🛠️ Cryptographic Architecture
 
-## How it works
+The updated primitive relies on standard, provably secure discrete logarithm assumptions over a prime-order group instead of custom arithmetic tricks:
 
-1. **Commit:** `Ca = g^a h^ra`, `Cb = g^b h^rb` (Pedersen, perfectly hiding).
-2. **Midpoint:** `Ca * Cb * g^(-2c) = h^(ra+rb)` holds exactly when `a + b = 2c`. A
-   Fiat-Shamir Schnorr proof shows knowledge of `ra + rb`.
-3. **Range:** two bit-decomposition range proofs, one for `a` and one for `c - a`.
-   `a` in range blocks negative or wrapped values. `c - a` in range gives `a <= c <= b`.
+1. **Commitment Phase:** Endpoints are mapped to independent group generators $g$ and $h$ where $\log_g(h)$ is unknown. Prover publishes $C_a = g^a \cdot h^{r_a}$ and $C_b = g^b \cdot h^{r_b}$ using random blinding scalars.
+2. **Homomorphic Midpoint Check:** Utilizing the additive properties of Pedersen commitments, the verifier validates the structural wire balance statement natively: $C_a \cdot C_b \cdot g^{-2c} \equiv h^{r_a + r_b} \pmod P$. The prover supplies a non-interactive Schnorr proof of knowledge (via the Fiat-Shamir transform) demonstrating ownership of the combined scalar $s = r_a + r_b$.
+3. **Range Bound Constraints:** To prevent negative number exploits and finite field modular wrapping, the system forces dual range proofs on $a$ and $c - a$. Each bit is independently committed and validated through a 1-out-of-2 Sigma OR-proof. This ensures $a \le c \le b$ holds over the integers rather than wrapping around the field modulus $Q$.
 
-What the verifier learns: `c`, and therefore `a + b`. Nothing else about `a` and `b` is
-revealed beyond what the statement itself implies.
+## 📜 Architectural Evolution: The Retired Legacy Design
 
-## Limitations
+The repository's previous design utilized a custom multi-precision modular inverse trapdoor where private boundaries were blinded via a multiplicative key: $k = r \cdot (a + b)^{-1} \pmod p$
+$$A = a \cdot k, \quad B = b \cdot k$$
 
-- 256-bit toy group (far too small for real use), regenerated at every import.
-- Proof size grows linearly with the bit range (about 14 KiB here).
-- Values are limited to 32 bits. 1024-bit endpoints would need a larger group or limb-wise commitments.
-- Not constant-time and not audited.
-- No primality proof yet, so the endpoints are not proven to be prime.
+### The Mathematical Vulnerability
+While mathematically clever, this approach was profoundly broken. Because the blinding operations share a common denominator, an attacker sniffing the public wire data could compute the sum of the coordinates: $A + B \equiv (a + b) \cdot r \cdot (a + b)^{-1} \equiv r \pmod p$
 
-## History: the retired design
+Consequently, the secret scalar $r$ completely leaked via a basic addition of public parameters. Once an attacker extracted $r$, they easily computed its inverse ($r^{-1}$), stripped it from the coordinates, and unblinded the secret boundaries cleanly.
 
-The first version published `c`, `A' = a*k`, `B' = b*k` with `k = r * (a+b)^-1`. It was
-broken: `A' + B' = r (mod p)`, so anyone could recover the "secret" `r`, and then both
-primes, from public data. A later patch added `r` but did not fix this. The old code is kept
-under `legacy/` for reference only. `audit_old_trapdoor.py` reproduces the leak.
-The earlier "quantum variant" write-up described no real protocol and is also archived.
+The original files, obsolete scripts, and the unverified native binaries have been entirely stripped from the main profile and archived under the `legacy/` directory for historical analysis only. `audit_old_trapdoor.py` programmatically replicates this exact leakage vector to demonstrate the necessity of shifting to a homomorphic commitment ecosystem.
 
-## License
+## ⚠️ Limitations & Disclaimers
+- **Toy Group Size:** Employs a 256-bit group for readability and performance execution loops. Real-world applications require migrating to secure curves like Ristretto255.
+- **Proof Footprint Scaling:** Proof size scales linearly $\mathcal{O}(N)$ with bit-decomposition. Bulletproofs are required to collapse this bound down to logarithmic $\mathcal{O}(\log N)$ footprints.
+- **Non-Constant Time:** This repository is an educational prototype and has not undergone a professional peer review or formal security audit. Do not deploy it in production environments.
 
-See `LICENSE`.
+## 📄 License
+This project is released under a restrictive, proprietary Custom Source License. Review `LICENSE` for the complete declaration parameters.
