@@ -7,3 +7,7 @@ __pycache__/
 *.exe
 *.obj
 *.o
+
+# native build artifacts
+zkrp_fast
+zkrp_fast_*

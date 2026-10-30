@@ -1,0 +1,34 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Repository guard
+        run: python check_repo.py
+
+      - name: Python self-tests
+        run: |
+          python benchmark.py
+          python audit_old_trapdoor.py
+          python zk_primality_circuit.py
+          python pocklington_chain.py --test
+
+      - name: Build native module
+        run: gcc -O3 -Wall -Wextra -o zkrp_fast zkrp_fast.c
+
+      - name: Native self-test and differential tests
+        run: |
+          ./zkrp_fast selftest
+          python test_fast.py . ./zkrp_fast
