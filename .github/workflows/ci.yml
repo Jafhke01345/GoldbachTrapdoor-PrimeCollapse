@@ -25,6 +25,7 @@ jobs:
           python zk_primality_circuit.py
           python pocklington_chain.py --test
           python certificate_adapter.py
+          python goldbach_relation.py
 
       - name: Build native module
         run: gcc -O3 -Wall -Wextra -o zkrp_fast zkrp_fast.c

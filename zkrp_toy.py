@@ -145,13 +145,16 @@ def range_verify(C, rp, n, ctx):
 
 
 # ---------------------------------------------------------------- full statement
-def prove(a, b, _cheat=False):
-    """Return the public transcript. `_cheat` is a TEST HOOK used by benchmark.py."""
+def prove(a, b, _cheat=False, _witness=None):
+    """Return the public transcript. `_cheat` is a TEST HOOK used by benchmark.py.
+    `_witness`: pass a dict to receive the commitment randomness {ra, rb} (used by goldbach_relation.py)."""
     if (a + b) % 2:
         raise ValueError("a + b must be even so that c is an integer")
     c = (a + b) // 2
     x = c - a                                                         # = (b - a) / 2
     ra, rb = secrets.randbelow(Q), secrets.randbelow(Q)
+    if _witness is not None:
+        _witness.update(ra=ra, rb=rb)
     Ca, Cb = commit(a, ra), commit(b, rb)
     rx = (-ra) % Q                                                    # C_x = g^c / C_a = g^x h^(-ra)
 

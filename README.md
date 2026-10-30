@@ -16,6 +16,7 @@ It is a toy: 256-bit group, unaudited, not constant-time, not for production use
 | Recursive Pocklington certificates, one base and one Bezout inverse per prime factor (`a2`/`w2`, `aq`/`wq`) | `pocklington_chain.py` | Implemented, adversarial self-test (`--test`) |
 | Pocklington chain checked against a Pedersen commitment, one base per prime factor (flat step list) | `zk_primality_circuit.py` | Implemented as a relation checker; **not zero-knowledge** |
 | Conversion between the engine's nested certificates and the circuit's flat steps, with a differential test of both verifiers | `certificate_adapter.py` | Implemented, tested |
+| The whole statement as one checker: Pedersen/range proofs plus a Pocklington certificate for each committed endpoint | `goldbach_relation.py` | Implemented, adversarial self-test; **primes are opened in the clear, not zero-knowledge** |
 | Zero-knowledge proof that the endpoints are prime | `PRIMALITY.md` | Design note only, not implemented |
 | Repository guard (structure, API, README checks) | `check_repo.py` | Implemented, run by CI |
 
@@ -25,6 +26,11 @@ the flat circuit format, and its self-test checks that both verifiers give the s
 certificates and on random single-field mutations. One difference remains: the engine's terminal prime
 must be below 2^20, the circuit's below 2^32, so a circuit chain with a larger terminal prime cannot be
 converted (the adapter refuses it instead of guessing).
+
+`goldbach_relation.py` ties the pieces together over one shared group: the proofs in `zkrp_toy.py`, the
+commitment openings, and a certificate for each endpoint, checked together. It shows what a zero-knowledge
+primality proof would have to establish; it does not hide the primes, because the openings are checked in
+the clear. Because the range is 32-bit, the endpoints are small primes.
 
 Nothing here proves that `a` and `b` are prime in zero knowledge. The range proof hides the endpoints
 beyond what `c` implies; the primality code checks certificates in the clear.
@@ -37,6 +43,7 @@ python audit_old_trapdoor.py        # shows why the retired design leaked its se
 python zk_primality_circuit.py      # circuit relation checker, adversarial self-test
 python pocklington_chain.py --test  # Pocklington engine, adversarial self-test
 python certificate_adapter.py       # format conversion and engine-versus-circuit differential test
+python goldbach_relation.py         # combined statement: commitments, range proofs and primality
 python check_repo.py                # repository guard
 
 # native module (needs GCC or Clang; uses unsigned __int128, so not MSVC)
