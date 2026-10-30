@@ -168,8 +168,22 @@ def prove(a, b, _cheat=False):
 
 
 def verify(pub, claimed_c=None):
-    """Verifier sees only the public transcript (and optionally the c it expects)."""
+    """Verifier sees only the public transcript (and optionally the c it expects).
+    Fails closed: a malformed transcript yields False, never an exception."""
+    try:
+        return _verify(pub, claimed_c)
+    except Exception:
+        return False
+
+
+def _verify(pub, claimed_c):
     c = pub["c"] if claimed_c is None else claimed_c
+    # Integer-level guarantee. The proofs only bind c modulo Q, so c itself must be a plain integer
+    # in [0, 2^(N_BITS+1)): then c = a + x EXACTLY over the integers (a, x < 2^N_BITS < Q), hence
+    # b = 2c - a = a + 2x and a <= c <= b hold over the integers, not just mod Q. Without this check
+    # a transcript claiming c + Q (same residue) would verify.
+    if type(c) is not int or not (0 <= c < 2 ** (N_BITS + 1)):
+        return False
     Ca, Cb = pub["Ca"], pub["Cb"]
     Cx = pow(G, c % Q, P) * pow(Ca, -1, P) % P
     D = Ca * Cb * pow(G, (-2 * c) % Q, P) % P

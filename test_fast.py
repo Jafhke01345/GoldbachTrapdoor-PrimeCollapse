@@ -274,5 +274,33 @@ for i in (0, 9):
         raise SystemExit("could not build a +P bit commitment that fits in 256 bits")
     check(f"C rejects: bit commitment {i} encoded as B + P", c_verify([pub]) == ["0"])
 
+print("\n8) integer-level bounds: the C verifier must reject c claimed only modulo Q, and accept the extremes")
+def forge_claim(a, b, c_claim):
+    c = (a + b) // 2
+    ra, rb = secrets.randbelow(Z.Q), secrets.randbelow(Z.Q)
+    Ca, Cb = Z.commit(a, ra), Z.commit(b, rb)
+    rp_a = Z.range_prove(a, ra, NB, "a")
+    rp_x = Z.range_prove(c - a, (-ra) % Z.Q, NB, "x")
+    tt = secrets.randbelow(Z.Q)
+    T = pow(Z.H, tt, Z.P)
+    z = (tt + Z.challenge(c_claim, Ca, Cb, T) * ((ra + rb) % Z.Q)) % Z.Q
+    return {"c": c_claim, "Ca": Ca, "Cb": Cb, "T": T, "z": z, "rp_a": rp_a, "rp_x": rp_x}
+
+for label, shift in (("c + Q", Z.Q), ("c + 2Q", 2 * Z.Q)):
+    pub = forge_claim(1009, 2003, 1506 + shift)
+    if pub["c"] < 2 ** 256:
+        check(f"C rejects field-wrapped claim {label}", c_verify([pub]) == ["0"])
+pub = forge_claim(1009, 2003, 1506 + 2 ** 33)       # fits in 256 bits, residue differs: range proofs must fail anyway
+check("C rejects claim c = true c + 2^33 (out of the integer bound)", c_verify([pub]) == ["0"])
+M = 2 ** NB
+extremes = [(0, 0), (77, 77), (0, 2 * (M - 1)), (M - 1, 3 * (M - 1))]
+got = c_prove(extremes)
+check("C prover accepts all four boundary pairs", len(got) == 4)
+if len(got) == 4:
+    toks = [g.split() for g in got]
+    check("Python verifier accepts C proofs at the boundaries", all(Z.verify(from_tokens(t_)) for t_ in toks))
+check("C prover refuses a = 2^N", c_prove([(M, M + 2)]) == ["ERR"])
+check("C prover refuses c - a = 2^N", c_prove([(0, 2 * M)]) == ["ERR"])
+
 print(f"\n{'ALL DIFFERENTIAL TESTS PASSED' if not failures else str(len(failures)) + ' FAILED: ' + '; '.join(failures)}")
 sys.exit(1 if failures else 0)

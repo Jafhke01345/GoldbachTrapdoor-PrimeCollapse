@@ -21,10 +21,12 @@ WHAT THIS IS NOT
 
 CERTIFICATE FORMAT (top-down; step k certifies step k's `n`, using the prime below it)
     n = 2 * q * R + 1,   q = witness_q_val  (the prime certified by the NEXT step)
-    Pocklington with F = 2q:   4q^2 > n   and, for witness base a,
-        a^(n-1) == 1 (mod n)
-        gcd(a^((n-1)/2) - 1, n) == 1     proven by a Bezout witness:  (u2 - 1) * bezout_2 == 1 (mod n)
-        gcd(a^((n-1)/q) - 1, n) == 1     proven by a Bezout witness:  (uq - 1) * bezout_q == 1 (mod n)
+    Pocklington with F = 2q:   4q^2 > n   and, for EACH prime factor f of F, its own base a_f
+    (witness_a2 for f = 2, witness_aq for f = q; they may be equal or different):
+        a_f^(n-1) == 1 (mod n)
+        gcd(a_f^((n-1)/f) - 1, n) == 1   proven by a Bezout witness:  (u_f - 1) * bezout_f == 1 (mod n)
+    This is the same per-factor structure as pocklington_chain.PrimeCertificate, and
+    certificate_adapter.py converts between the two (flat list here, nested there).
     The last step's q must be a small prime (< BASE_LIMIT), checked by trial division.
 
 Run `python zk_primality_circuit.py` for the built-in adversarial self-test.
@@ -136,7 +138,8 @@ class Step:
     n: int                  # prime certified by this tier
     witness_q_val: int      # q: the (already certified) prime used as the factor of n - 1; next tier's n
     witness_R: int          # cofactor, n = 2 * q * R + 1
-    witness_a: int          # Pocklington base
+    witness_a2: int         # Pocklington base for the factor 2
+    witness_aq: int         # Pocklington base for the factor q (may differ from witness_a2)
     bezout_2: int           # inverse of (a^((n-1)/2) - 1) mod n
     bezout_q: int           # inverse of (a^((n-1)/q) - 1) mod n
 
@@ -148,7 +151,7 @@ def transcript_digest(C_n: int, steps: Sequence[Step]) -> str:
     h.update(b"zkpp-transcript|" + str(C_n).encode())
     for s in steps:
         h.update(b"|" + b",".join(str(v).encode() for v in
-                                  (s.n, s.witness_q_val, s.witness_R, s.witness_a, s.bezout_2, s.bezout_q)))
+                                  (s.n, s.witness_q_val, s.witness_R, s.witness_a2, s.witness_aq, s.bezout_2, s.bezout_q)))
     return h.hexdigest()
 
 
@@ -175,9 +178,10 @@ def _verify(steps, C_n, n, r, params) -> bool:
     for step in steps:
         if type(step) is not Step:          # exact type: no subclasses with hostile properties
             return False
-        n_i, q, R, a = step.n, step.witness_q_val, step.witness_R, step.witness_a
+        n_i, q, R = step.n, step.witness_q_val, step.witness_R
+        a2, aq = step.witness_a2, step.witness_aq
         w2, wq = step.bezout_2, step.bezout_q
-        if not _is_int(n_i, q, R, a, w2, wq):
+        if not _is_int(n_i, q, R, a2, aq, w2, wq):
             return False
 
         # ---- recursive chain link: this tier must certify exactly the value handed down from above
@@ -191,16 +195,16 @@ def _verify(steps, C_n, n, r, params) -> bool:
             return False
         if not (4 * q * q > n_i):                   # F = 2q must exceed sqrt(n)
             return False
-        if not (2 <= a < n_i):
-            return False
 
-        # ---- Fermat condition
-        if pow(a, n_i - 1, n_i) != 1:
-            return False
-
-        # ---- dual coprimality, one explicit Bezout witness per prime factor f of F = 2q
-        for f, w in ((2, w2), (q, wq)):
+        # ---- per prime factor f of F = 2q: its own base, Fermat condition, explicit Bezout witness
+        for f, a, w in ((2, a2, w2), (q, aq, wq)):
+            if not (2 <= a <= n_i - 2):             # canonical base, same range as pocklington_chain
+                return False
+            if pow(a, n_i - 1, n_i) != 1:           # Fermat condition for this base
+                return False
             if not (0 <= w < n_i):                  # canonical range: no malleable witnesses
+                return False
+            if (n_i - 1) % f != 0:
                 return False
             u = pow(a, (n_i - 1) // f, n_i)
             lhs, rhs = ((u - 1) * w) % n_i, 1       # exists iff gcd(u - 1, n) == 1
@@ -224,17 +228,23 @@ def verify(steps: Sequence[Step], C_n: int, n: int, r: int, params: Params) -> b
 
 # ============================================================================ prover side (for tests)
 def _witness_for(n: int, q: int) -> Optional[Step]:
-    """Find base a and both Bezout inverses for n = 2qR + 1; None if no witness exists."""
+    """Find a base and Bezout inverse for EACH factor of F = 2q (bases chosen independently, at random
+    among the small valid ones, so that tests exercise a2 != aq); None if no witness exists."""
     R = (n - 1) // (2 * q)
-    for a in range(2, 300):
-        if pow(a, n - 1, n) != 1:
-            return None                               # Fermat failure: n is composite
-        u2 = pow(a, (n - 1) // 2, n)
-        uq = pow(a, (n - 1) // q, n)
-        if gcd(u2 - 1, n) != 1 or gcd(uq - 1, n) != 1:
-            continue
-        return Step(n, q, R, a, pow(u2 - 1, -1, n), pow(uq - 1, -1, n))
-    return None
+    found = {}
+    for f in (2, q):
+        good = []
+        for a in range(2, min(300, n - 1)):
+            if pow(a, n - 1, n) != 1:
+                return None                           # Fermat failure: n is composite
+            y = (pow(a, (n - 1) // f, n) - 1) % n
+            if gcd(y, n) == 1:
+                good.append((a, pow(y, -1, n)))
+        if not good:
+            return None
+        found[f] = secrets.choice(good)
+    (a2, w2), (aq, wq) = found[2], found[q]
+    return Step(n, q, R, a2, aq, w2, wq)
 
 
 def build_certificate(bits: int) -> List[Step]:
@@ -341,12 +351,18 @@ def _selftest() -> int:
            got, term < BASE_LIMIT and is_small_prime(term))
     bad = list(steps); bad[0] = replace(bad[0], witness_R=bad[0].witness_R + 1)
     expect("R tampered (n != 2qR + 1)", verify(bad, C, n, r, params), False)
-    bad = list(steps); bad[0] = replace(bad[0], witness_a=1)
-    expect("witness base a = 1", verify(bad, C, n, r, params), False)
-    bad = list(steps); bad[0] = replace(bad[0], witness_a=n - 1)
-    expect("witness base a = n - 1", verify(bad, C, n, r, params), False)
-    bad = list(steps); bad[0] = replace(bad[0], witness_a=bad[0].witness_a + bad[0].n)
-    expect("non-canonical base (a + n): same residue, rejected to keep the encoding unique", verify(bad, C, n, r, params), False)
+    for fld in ("witness_a2", "witness_aq"):
+        bad = list(steps); bad[0] = replace(bad[0], **{fld: 1})
+        expect(f"{fld} = 1", verify(bad, C, n, r, params), False)
+        bad = list(steps); bad[0] = replace(bad[0], **{fld: bad[0].n - 1})
+        expect(f"{fld} = n - 1", verify(bad, C, n, r, params), False)
+        bad = list(steps); bad[0] = replace(bad[0], **{fld: getattr(bad[0], fld) + bad[0].n})
+        expect(f"{fld} non-canonical (a + n): same residue, rejected to keep the encoding unique", verify(bad, C, n, r, params), False)
+    s0 = steps[0]
+    bad = list(steps); bad[0] = replace(s0, witness_a2=s0.witness_aq, witness_aq=s0.witness_a2)
+    if s0.witness_a2 != s0.witness_aq:
+        expect("bases swapped between the two factors (each base is bound to its own Bezout witness)",
+               verify(bad, C, n, r, params), False)
 
     print("\n5) size threshold: a TRUE prime whose certificate is too weak must be rejected")
     q = 1000003                                     # prime
@@ -387,7 +403,7 @@ def _selftest() -> int:
             if not is_probable_prime(m):
                 break
         rr = secrets.randbelow(Q)
-        fake = Step(m, qq, R, 2, 1, 1)
+        fake = Step(m, qq, R, 2, 2, 1, 1)
         expect("composite n = 2qR + 1 with forged witnesses", verify([fake], commit(params, m, rr), m, rr, params), False)
 
     print("\n7b) composite with VALID Bezout witnesses: only the Fermat condition can reject it")
@@ -401,7 +417,7 @@ def _selftest() -> int:
             continue
         u2, uq = pow(a, (m - 1) // 2, m), pow(a, (m - 1) // qq, m)
         if gcd(u2 - 1, m) == 1 and gcd(uq - 1, m) == 1:
-            forged = Step(m, qq, R, a, pow(u2 - 1, -1, m), pow(uq - 1, -1, m))
+            forged = Step(m, qq, R, a, a, pow(u2 - 1, -1, m), pow(uq - 1, -1, m))
             break
     assert forged is not None and 4 * 1009 * 1009 > forged.n
     rr = secrets.randbelow(Q)
@@ -415,14 +431,14 @@ def _selftest() -> int:
 
     class EvilStep(Step):
         def __getattribute__(self, name):
-            if name == "witness_a":
+            if name == "witness_aq":
                 raise RuntimeError("hostile attribute access")
             return super().__getattribute__(name)
 
     for name, args in {
         "hostile list subclass (len() raises)": (BadList(steps), C, n, r, params),
         "hostile Step subclass (property raises)": ([EvilStep(*[getattr(steps[0], f) for f in
-                                                     ("n", "witness_q_val", "witness_R", "witness_a", "bezout_2", "bezout_q")])] + list(steps[1:]), C, n, r, params),
+                                                     ("n", "witness_q_val", "witness_R", "witness_a2", "witness_aq", "bezout_2", "bezout_q")])] + list(steps[1:]), C, n, r, params),
         "steps=None": (None, C, n, r, params),
         "steps contains None": ([None], C, n, r, params),
         "float n": (steps, C, float(n), r, params),
@@ -431,7 +447,7 @@ def _selftest() -> int:
         "str C": (steps, "x", n, r, params),
         "bad params": (steps, C, n, r, (4, 1, 2, 3)),
         "too many steps": ([steps[0]] * 100, C, n, r, params),
-        "Step with None field": (steps[:1] and [replace(steps[0], witness_a=None)], C, n, r, params),
+        "Step with None field": (steps[:1] and [replace(steps[0], witness_aq=None)], C, n, r, params),
     }.items():
         try:
             expect(name, verify(*args), False)
@@ -448,7 +464,7 @@ def _selftest() -> int:
     for _ in range(400):
         steps, n, r, C = fresh(secrets.choice((48, 96, 160)))
         i = secrets.randbelow(len(steps))
-        field = secrets.choice(("n", "witness_q_val", "witness_R", "bezout_2", "bezout_q", "witness_a", "root_n", "root_r", "C_n"))
+        field = secrets.choice(("n", "witness_q_val", "witness_R", "bezout_2", "bezout_q", "witness_a2", "witness_aq", "root_n", "root_r", "C_n"))
         bad, bn, br, bC = list(steps), n, r, C
         if field == "root_n":   bn = mutate(n, Q)
         elif field == "root_r": br = mutate(r, Q)
@@ -460,9 +476,9 @@ def _selftest() -> int:
         trials += 1
         if accepted and bn == n and is_probable_prime(bn) is False:
             soundness_violations += 1                    # accepted a composite: real soundness failure
-        if accepted and field != "witness_a":
-            escapes += 1                                 # only a different valid base `a` may legitimately pass
-    expect(f"{trials} mutations: no mutation outside `witness_a` accepted", escapes == 0, True)
+        if accepted and field not in ("witness_a2", "witness_aq"):
+            escapes += 1                                 # only a different valid base may legitimately pass
+    expect(f"{trials} mutations: no mutation outside the base fields accepted", escapes == 0, True)
     expect("no accepted transcript ever certified a composite", soundness_violations == 0, True)
 
     print(f"\n{'ALL CHECKS PASSED' if not failures else str(len(failures)) + ' CHECK(S) FAILED: ' + ', '.join(failures)}"

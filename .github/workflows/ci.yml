@@ -24,6 +24,7 @@ jobs:
           python audit_old_trapdoor.py
           python zk_primality_circuit.py
           python pocklington_chain.py --test
+          python certificate_adapter.py
 
       - name: Build native module
         run: gcc -O3 -Wall -Wextra -o zkrp_fast zkrp_fast.c

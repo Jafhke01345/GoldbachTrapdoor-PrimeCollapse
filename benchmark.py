@@ -21,9 +21,25 @@ def tamper_tuple(proof, index):
     return tuple(lst)
 
 
+def forge_claim(a, b, c_claim):
+    """A malicious prover with REAL a, b who claims a public c_claim that equals the true c only
+    modulo Q (e.g. c + Q). Every algebraic equation still holds; only the integer-size check on c
+    can stop it. Used to test that the verifier enforces a <= c <= b over the integers."""
+    c = (a + b) // 2
+    ra, rb = secrets.randbelow(Z.Q), secrets.randbelow(Z.Q)
+    Ca, Cb = Z.commit(a, ra), Z.commit(b, rb)
+    rp_a = Z.range_prove(a, ra, Z.N_BITS, "a")
+    rp_x = Z.range_prove(c - a, (-ra) % Z.Q, Z.N_BITS, "x")
+    t = secrets.randbelow(Z.Q)
+    T = pow(Z.H, t, Z.P)
+    z = (t + Z.challenge(c_claim, Ca, Cb, T) * ((ra + rb) % Z.Q)) % Z.Q
+    return {"c": c_claim, "Ca": Ca, "Cb": Cb, "T": T, "z": z, "rp_a": rp_a, "rp_x": rp_x}
+
+
 def soundness_tests():
     """Each entry: (description, expected verifier result, function returning actual result)."""
     base = Z.prove(1009, 2003)
+    M = 2 ** Z.N_BITS
 
     def tampered(mutator):
         pub = copy.deepcopy(base)
@@ -49,6 +65,18 @@ def soundness_tests():
         ("negative a is rejected",                            False, lambda: Z.verify(Z.prove(-3, 1001, _cheat=True))),
         ("a > b (ordering violated) is rejected",             False, lambda: Z.verify(Z.prove(2003, 1009, _cheat=True))),
         ("a above 2^N (wrap-around attempt) is rejected",     False, lambda: Z.verify(Z.prove(2 ** Z.N_BITS + 5, 2 ** Z.N_BITS + 9, _cheat=True))),
+        ("a = 2^N exactly (one past the range) is rejected", False, lambda: Z.verify(Z.prove(M, M + 2, _cheat=True))),
+        ("c - a = 2^N exactly (one past the range) is rejected", False, lambda: Z.verify(Z.prove(0, 2 * M, _cheat=True))),
+        ("field-wrapped claim c + Q is rejected",             False, lambda: Z.verify(forge_claim(1009, 2003, 1506 + Z.Q))),
+        ("field-wrapped claim c + 2Q is rejected",            False, lambda: Z.verify(forge_claim(1009, 2003, 1506 + 2 * Z.Q))),
+        ("negative claim c - Q (same residue) is rejected",   False, lambda: Z.verify(forge_claim(1009, 2003, 1506 - Z.Q))),
+        ("boolean c is rejected",                             False, lambda: tampered(lambda p: p.__setitem__("c", True))),
+        ("malformed transcript {} is rejected, no exception", False, lambda: Z.verify({})),
+        ("transcript None is rejected, no exception",         False, lambda: Z.verify(None)),
+        ("boundary a = 0, b = 0 is accepted",                 True,  lambda: Z.verify(Z.prove(0, 0))),
+        ("boundary a = c (x = 0) is accepted",                True,  lambda: Z.verify(Z.prove(77, 77))),
+        ("boundary a = 0, c = 2^N - 1 is accepted",           True,  lambda: Z.verify(Z.prove(0, 2 * (M - 1)))),
+        ("boundary a = x = 2^N - 1 (max c) is accepted",      True,  lambda: Z.verify(Z.prove(M - 1, 3 * (M - 1)))),
         ("tampered commitment Ca is rejected",                False, lambda: tampered(lambda p: p.__setitem__("Ca", p["Ca"] * Z.G % Z.P))),
         ("tampered Schnorr response z is rejected",           False, lambda: tampered(lambda p: p.__setitem__("z", (p["z"] + 1) % Z.Q))),
         ("tampered bit OR-proof is rejected",                 False, lambda: tampered(tamper_bit_proof)),

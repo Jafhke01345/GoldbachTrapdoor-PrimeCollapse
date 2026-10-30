@@ -360,6 +360,9 @@ static int verify(const transcript *t) {
     for (int r = 0; r < 2; r++) for (int i = 0; i < NB; i++) {
         if (!below_p(&t->B[r][i]) || !below_p(&t->pr[r][i][0]) || !below_p(&t->pr[r][i][1])) return 0;
     }
+    /* integer-level guarantee: c must lie in [0, 2^(NB+1)) so that c = a + x exactly over the integers
+       (the proofs bind c only mod Q; a claimed c + Q would otherwise verify) */
+    if (t->c.v[1] | t->c.v[2] | t->c.v[3] || (t->c.v[0] >> (NB + 1))) return 0;
     /* cheap hash checks first */
     fe e; chal_schnorr(&e, &t->c, &t->Ca, &t->Cb, &t->T);
     /* Schnorr: h^z == T * D^e with D = Ca*Cb*g^(-2c) */

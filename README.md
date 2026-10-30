@@ -14,13 +14,17 @@ It is a toy: 256-bit group, unaudited, not constant-time, not for production use
 | Soundness tests and timing (12 checks, 10 timed cycles) | `benchmark.py` | Implemented |
 | Native C implementation of the same protocol | `zkrp_fast.c` | Implemented, cross-checked against `zkrp_toy.py` by `test_fast.py` |
 | Recursive Pocklington certificates, one base and one Bezout inverse per prime factor (`a2`/`w2`, `aq`/`wq`) | `pocklington_chain.py` | Implemented, adversarial self-test (`--test`) |
-| Pocklington chain checked against a Pedersen commitment, one base per tier (flat step list) | `zk_primality_circuit.py` | Implemented as a relation checker; **not zero-knowledge** |
+| Pocklington chain checked against a Pedersen commitment, one base per prime factor (flat step list) | `zk_primality_circuit.py` | Implemented as a relation checker; **not zero-knowledge** |
+| Conversion between the engine's nested certificates and the circuit's flat steps, with a differential test of both verifiers | `certificate_adapter.py` | Implemented, tested |
 | Zero-knowledge proof that the endpoints are prime | `PRIMALITY.md` | Design note only, not implemented |
 | Repository guard (structure, API, README checks) | `check_repo.py` | Implemented, run by CI |
 
-Known gap: `pocklington_chain.py` and `zk_primality_circuit.py` use different certificate formats
-(separate bases per factor versus one base per tier). A certificate from one is not always accepted
-by the other, and there is no adapter yet.
+Both Pocklington modules now use the same certificate structure (a separate base and Bezout inverse
+for each of the factors 2 and q). `certificate_adapter.py` converts between the nested engine format and
+the flat circuit format, and its self-test checks that both verifiers give the same verdict on honest
+certificates and on random single-field mutations. One difference remains: the engine's terminal prime
+must be below 2^20, the circuit's below 2^32, so a circuit chain with a larger terminal prime cannot be
+converted (the adapter refuses it instead of guessing).
 
 Nothing here proves that `a` and `b` are prime in zero knowledge. The range proof hides the endpoints
 beyond what `c` implies; the primality code checks certificates in the clear.
@@ -32,6 +36,7 @@ python benchmark.py                 # soundness tests, then 10 timed prove/verif
 python audit_old_trapdoor.py        # shows why the retired design leaked its secrets
 python zk_primality_circuit.py      # circuit relation checker, adversarial self-test
 python pocklington_chain.py --test  # Pocklington engine, adversarial self-test
+python certificate_adapter.py       # format conversion and engine-versus-circuit differential test
 python check_repo.py                # repository guard
 
 # native module (needs GCC or Clang; uses unsigned __int128, so not MSVC)
@@ -66,6 +71,11 @@ the ratios as the reliable part. Proof size is about 14 KiB and grows linearly w
    proof shows knowledge of `ra + rb`.
 3. **Range:** two bit-decomposition range proofs, one for `a` and one for `c - a`. `a` in range blocks
    negative or wrapped values; `c - a` in range gives `a <= c <= b`. Each bit uses a Schnorr OR-proof.
+
+Integer-level guarantee: the proofs bind `c` only modulo the group order Q, so both verifiers also require
+`c` to be a plain integer with `0 <= c < 2^(N_BITS+1)`. Then `c = a + x` exactly over the integers (with
+`x = c - a`, both below 2^32), `b = a + 2x`, and `a <= c <= b` holds over the integers and not merely mod Q.
+Without that check a transcript claiming `c + Q` would verify; `benchmark.py` and `test_fast.py` test it.
 
 The verifier learns `c`, and therefore `a + b`. Nothing else about `a` and `b` is revealed beyond what
 the statement implies.
