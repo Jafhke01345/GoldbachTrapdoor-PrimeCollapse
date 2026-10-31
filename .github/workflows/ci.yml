@@ -27,6 +27,7 @@ jobs:
           python certificate_adapter.py
           python goldbach_relation.py
           python sealed_midpoint.py
+          python three_coloring_zk.py
 
       - name: Build native module
         run: gcc -O3 -Wall -Wextra -o zkrp_fast zkrp_fast.c

@@ -18,6 +18,7 @@ It is a toy: 256-bit group, unaudited, not constant-time, not for production use
 | Conversion between the engine's nested certificates and the circuit's flat steps, with a differential test of both verifiers | `certificate_adapter.py` | Implemented, tested |
 | The whole statement as one checker: Pedersen/range proofs plus a Pocklington certificate for each committed endpoint | `goldbach_relation.py` | Implemented, adversarial self-test; **primes are opened in the clear, not zero-knowledge** |
 | Sealed midpoint: `c` published masked by two devices' one-time hash-chain headers, opened only when both reveal | `sealed_midpoint.py` | Implemented, adversarial self-test; controls who can read `c`, proves nothing about the relation |
+| Zero-knowledge proof that a graph is 3-colorable (hex SHA-256 commitments, Fiat-Shamir) | `three_coloring_zk.py` | Implemented, adversarial self-test; standalone, does not strengthen the other components |
 | Zero-knowledge proof that the endpoints are prime | `PRIMALITY.md` | Design note only, not implemented |
 | Repository guard (structure, API, README checks) | `check_repo.py` | Implemented, run by CI |
 
@@ -46,6 +47,7 @@ python pocklington_chain.py --test  # Pocklington engine, adversarial self-test
 python certificate_adapter.py       # format conversion and engine-versus-circuit differential test
 python goldbach_relation.py         # combined statement: commitments, range proofs and primality
 python sealed_midpoint.py           # sealed midpoint: hash-chain headers, rotating xor/add/subtract masks
+python three_coloring_zk.py         # zero-knowledge graph 3-coloring proof
 python check_repo.py                # repository guard
 
 # native module (needs GCC or Clang; uses unsigned __int128, so not MSVC)
@@ -105,6 +107,15 @@ every session.
 Neither device alone can unseal `c`. The layer only controls who can read `c`: correctness of
 `a + b = 2c` still comes from the proofs, and the server knows `c` from the start. After opening, whoever
 holds `a` can compute `b = 2c - a`.
+
+## Graph 3-coloring proof
+
+`three_coloring_zk.py` is the classic Goldreich-Micali-Wigderson zero-knowledge proof that a public graph
+has a proper 3-coloring, made non-interactive with Fiat-Shamir. Each round permutes the colors, commits to
+every node with a hex SHA-256 commitment, and opens only the two endpoints of one challenged edge; enough
+rounds are generated for about 2^-40 soundness error. It is a standalone teaching component: it is not
+connected to the other proofs and does not make them stronger. Reducing primality to a coloring instance
+would be far too large to be practical, so it does not hide the primes either.
 
 ## Limitations
 
