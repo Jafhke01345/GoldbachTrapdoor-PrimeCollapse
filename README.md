@@ -17,6 +17,7 @@ It is a toy: 256-bit group, unaudited, not constant-time, not for production use
 | Pocklington chain checked against a Pedersen commitment, one base per prime factor (flat step list) | `zk_primality_circuit.py` | Implemented as a relation checker; **not zero-knowledge** |
 | Conversion between the engine's nested certificates and the circuit's flat steps, with a differential test of both verifiers | `certificate_adapter.py` | Implemented, tested |
 | The whole statement as one checker: Pedersen/range proofs plus a Pocklington certificate for each committed endpoint | `goldbach_relation.py` | Implemented, adversarial self-test; **primes are opened in the clear, not zero-knowledge** |
+| Sealed midpoint: `c` published masked by two devices' one-time hash-chain headers, opened only when both reveal | `sealed_midpoint.py` | Implemented, adversarial self-test; controls who can read `c`, proves nothing about the relation |
 | Zero-knowledge proof that the endpoints are prime | `PRIMALITY.md` | Design note only, not implemented |
 | Repository guard (structure, API, README checks) | `check_repo.py` | Implemented, run by CI |
 
@@ -44,6 +45,7 @@ python zk_primality_circuit.py      # circuit relation checker, adversarial self
 python pocklington_chain.py --test  # Pocklington engine, adversarial self-test
 python certificate_adapter.py       # format conversion and engine-versus-circuit differential test
 python goldbach_relation.py         # combined statement: commitments, range proofs and primality
+python sealed_midpoint.py           # sealed midpoint: hash-chain headers, rotating xor/add/subtract masks
 python check_repo.py                # repository guard
 
 # native module (needs GCC or Clang; uses unsigned __int128, so not MSVC)
@@ -92,6 +94,17 @@ Without that check a transcript claiming `c + Q` would verify; `benchmark.py` an
 
 The verifier learns `c`, and therefore `a + b`. Nothing else about `a` and `b` is revealed beyond what
 the statement implies.
+
+## Sealed midpoint
+
+`sealed_midpoint.py` lets two devices that each hold a prime keep the midpoint `c` unreadable until both
+reveal a one-time header. Each device publishes the end of a hash chain bound to its prime. For each
+session the server publishes `c` masked with a value derived from each device's next chain element, using
+XOR, addition or subtraction mod 2^256 as chosen pseudorandomly per session. The hash label ratchets after
+every session.
+Neither device alone can unseal `c`. The layer only controls who can read `c`: correctness of
+`a + b = 2c` still comes from the proofs, and the server knows `c` from the start. After opening, whoever
+holds `a` can compute `b = 2c - a`.
 
 ## Limitations
 

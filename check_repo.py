@@ -23,7 +23,7 @@ REQUIRED = [
     "README.md", "LICENSE", "PRIMALITY.md", ".gitignore",
     "zkrp_toy.py", "benchmark.py", "audit_old_trapdoor.py",
     "pocklington_chain.py", "zk_primality_circuit.py",
-    "zkrp_fast.c", "test_fast.py", "check_repo.py", "certificate_adapter.py", "goldbach_relation.py",
+    "zkrp_fast.c", "test_fast.py", "check_repo.py", "certificate_adapter.py", "goldbach_relation.py", "sealed_midpoint.py",
 ]
 
 # module -> names that must be defined at top level (its public API)
@@ -31,6 +31,7 @@ API = {
     "pocklington_chain.py": {"PrimeCertificate", "build_certificate", "verify_certificate", "run_self_tests"},
     "zk_primality_circuit.py": {"Step", "verify", "build_certificate", "make_params", "commit"},
     "certificate_adapter.py": {"from_engine", "to_engine"},
+    "sealed_midpoint.py": {"HashChain", "Opener", "seal", "open_and_verify"},
     "goldbach_relation.py": {"certify", "prove_relation", "verify_relation"},
     "zkrp_toy.py": {"prove", "verify", "commit", "range_prove", "range_verify"},
 }
@@ -133,7 +134,7 @@ def main():
     refs = set(re.findall(r"(?<![\w/.-])([\w][\w./-]*\.(?:py|c|md|yml|ps1))\b", readme))
     missing = sorted(r for r in refs if not os.path.exists(os.path.join(ROOT, r)))
     check("every file named in the README exists", not missing, f"missing: {missing}")
-    for f in ("zkrp_fast.c", "test_fast.py", "pocklington_chain.py", "zk_primality_circuit.py", "certificate_adapter.py", "goldbach_relation.py"):
+    for f in ("zkrp_fast.c", "test_fast.py", "pocklington_chain.py", "zk_primality_circuit.py", "certificate_adapter.py", "goldbach_relation.py", "sealed_midpoint.py"):
         check(f"README mentions {f}", f in readme)
 
     print(f"\n{'REPO GUARD PASSED' if not failures else str(len(failures)) + ' GUARD CHECK(S) FAILED: ' + '; '.join(failures)}")
