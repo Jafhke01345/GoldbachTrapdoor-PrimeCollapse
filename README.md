@@ -19,6 +19,7 @@ It is a toy: 256-bit group, unaudited, not constant-time, not for production use
 | The whole statement as one checker: Pedersen/range proofs plus a Pocklington certificate for each committed endpoint | `goldbach_relation.py` | Implemented, adversarial self-test; **primes are opened in the clear, not zero-knowledge** |
 | Sealed midpoint: `c` published masked by two devices' one-time hash-chain headers, opened only when both reveal | `sealed_midpoint.py` | Implemented, adversarial self-test; controls who can read `c`, proves nothing about the relation |
 | Zero-knowledge proof that a graph is 3-colorable (hex SHA-256 commitments, Fiat-Shamir) | `three_coloring_zk.py` | Implemented, adversarial self-test; standalone, does not strengthen the other components |
+| Zero-knowledge proof that a hidden number below 8 is prime, via a graph built from the formula "x is prime" and the 3-coloring proof | `zk_threecolor.py` | Implemented as a demo of the mechanism; tiny numbers only, not linked to the Pedersen commitments |
 | Zero-knowledge proof that the endpoints are prime | `PRIMALITY.md` | Design note only, not implemented |
 | Repository guard (structure, API, README checks) | `check_repo.py` | Implemented, run by CI |
 
@@ -48,6 +49,7 @@ python certificate_adapter.py       # format conversion and engine-versus-circui
 python goldbach_relation.py         # combined statement: commitments, range proofs and primality
 python sealed_midpoint.py           # sealed midpoint: hash-chain headers, rotating xor/add/subtract masks
 python three_coloring_zk.py         # zero-knowledge graph 3-coloring proof
+python zk_threecolor.py             # small-prime proof through 3-coloring (about 25 s)
 python check_repo.py                # repository guard
 
 # native module (needs GCC or Clang; uses unsigned __int128, so not MSVC)
