@@ -45,11 +45,41 @@ def certify(n: int) -> tuple:
     return tuple(steps)
 
 
-def prove_relation(a: int, b: int):
+def certified_prime(bits: int, rng: random.Random):
+    """Random provable prime of about `bits` bits together with its circuit-format certificate, built
+    bottom-up (each tier n = 2qR + 1 from a certified q, R < 2q) so no factoring is needed. This is how
+    primes too large to factor n - 1 by trial division get certificates. Returns (n, steps)."""
+    while True:
+        q = rng.randrange(1 << 18, eng.BASE_LIMIT)
+        if eng.small_is_prime(q):
+            break
+    if type(bits) is not int or bits < 22:
+        raise ValueError("bits must be an integer >= 22")
+    cert = eng.PrimeCertificate(n=q)
+    while cert.n.bit_length() < bits:
+        q = cert.n
+        target = min(bits, 2 * q.bit_length() - 1)               # n < 2^target <= 2^(2*bitlen(q)-1) < 4q^2
+        lo = -(-((1 << (target - 1)) - 1) // (2 * q))             # smallest R with 2qR + 1 >= 2^(target-1)
+        hi = ((1 << target) - 2) // (2 * q)                       # largest  R with 2qR + 1 <  2^target
+        while True:
+            R = rng.randrange(max(lo, 1), hi + 1)
+            n = 2 * q * R + 1
+            if eng._oracle_is_prime(n):
+                break
+        a2, w2 = eng._find_bezout_witness(n, 2)
+        aq, wq = eng._find_bezout_witness(n, q)
+        cert = eng.PrimeCertificate(n=n, q=q, R=R, a2=a2, w2=w2, aq=aq, wq=wq, q_certificate=cert)
+    steps, _ = adapter.from_engine(cert)
+    return cert.n, tuple(steps)
+
+
+def prove_relation(a: int, b: int, steps_a=None, steps_b=None):
     """Honest prover: returns (public transcript, opening of a, opening of b)."""
     witness = {}
     pub = Z.prove(a, b, _witness=witness)
-    return pub, Opening(a, witness["ra"], certify(a)), Opening(b, witness["rb"], certify(b))
+    return (pub,
+            Opening(a, witness["ra"], certify(a) if steps_a is None else tuple(steps_a)),
+            Opening(b, witness["rb"], certify(b) if steps_b is None else tuple(steps_b)))
 
 
 def _verify_relation(pub, oa, ob) -> bool:
@@ -181,6 +211,38 @@ def _selftest() -> int:
             expect(name, verify_relation(*args), False)
         except Exception as exc:
             print(f"  [FAIL] {name}: raised {type(exc).__name__}"); failures.append(name)
+
+    print("\n8) wide range: 128-bit primes with multi-tier certificates")
+    Z.set_range_bits(128)
+    try:
+        for _ in range(2):
+            (a, sa), (b, sb) = sorted([certified_prime(128, rng), certified_prime(128, rng)], key=lambda t: t[0])
+            if (a + b) % 2:
+                continue
+            pub, oa, ob = prove_relation(a, b, sa, sb)
+            expect(f"{a.bit_length()}-bit a ({len(sa)} tiers), {b.bit_length()}-bit b ({len(sb)} tiers): accepted",
+                   verify_relation(pub, oa, ob))
+            expect("  same transcript, certificates swapped", verify_relation(pub, replace(oa, steps=sb), replace(ob, steps=sa)), False)
+            expect("  c claimed as c + Q", verify_relation(dict(pub, c=pub["c"] + Z.Q), oa, ob), False)
+            top = sa[0]
+            bad = (replace(top, bezout_q=(top.bezout_q + 1) % top.n),) + sa[1:]
+            expect("  top-tier Bezout witness tampered", verify_relation(pub, replace(oa, steps=bad), ob), False)
+            expect("  truncated chain (last tier removed)", verify_relation(pub, replace(oa, steps=sa[:-1]), ob), False)
+        a = (1 << 128) + 3                                    # one past the range: prover and verifier must refuse
+        try:
+            Z.prove(a, a)
+            expect("out-of-range endpoint refused by honest prover", False)
+        except ValueError:
+            expect("out-of-range endpoint refused by honest prover", True)
+        expect("a = 2^128 forged with _cheat is rejected", Z.verify(Z.prove((1 << 128), (1 << 128) + 2, _cheat=True)), False)
+        for bad_bits in (Z.Q.bit_length() - 3, 0, True):
+            try:
+                Z.set_range_bits(bad_bits)
+                expect(f"set_range_bits({bad_bits}) refused", False)
+            except ValueError:
+                expect(f"set_range_bits({bad_bits}) refused (would let a + b = 2c wrap)", True)
+    finally:
+        Z.set_range_bits(32)
 
     print(f"\n{'ALL CHECKS PASSED' if not failures else str(len(failures)) + ' CHECK(S) FAILED: ' + ', '.join(failures)}")
     print("Reminder: relation checker only. The primes are opened in the clear: NOT zero-knowledge for primality. Toy, unaudited.")

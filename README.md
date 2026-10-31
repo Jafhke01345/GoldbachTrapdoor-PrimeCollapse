@@ -30,7 +30,7 @@ converted (the adapter refuses it instead of guessing).
 `goldbach_relation.py` ties the pieces together over one shared group: the proofs in `zkrp_toy.py`, the
 commitment openings, and a certificate for each endpoint, checked together. It shows what a zero-knowledge
 primality proof would have to establish; it does not hide the primes, because the openings are checked in
-the clear. Because the range is 32-bit, the endpoints are small primes.
+the clear. At the default 32-bit range the endpoints are small primes; the self-test also runs it at 128 bits.
 
 Nothing here proves that `a` and `b` are prime in zero knowledge. The range proof hides the endpoints
 beyond what `c` implies; the primality code checks certificates in the clear.
@@ -91,7 +91,10 @@ the statement implies.
 
 - 256-bit toy group, regenerated at every import of `zkrp_toy.py`. Real use needs a standard curve such
   as Ristretto255 and a real range-proof system such as Bulletproofs.
-- Range limited to 32 bits. Larger endpoints need a larger group or limb-wise commitments.
+- Default range is 32 bits. The Python reference can widen it with `zkrp_toy.set_range_bits(n)` up to the toy
+  group's no-wrap limit (about 250 bits), and `goldbach_relation.py` tests 128-bit primes with multi-tier
+  certificates that way. The C module is 32-bit only (its prover takes 64-bit inputs). Endpoints beyond the
+  group size need limb-wise vector commitments.
 - No zero-knowledge primality proof (see `PRIMALITY.md`), and no audit.
 - Not constant-time.
 

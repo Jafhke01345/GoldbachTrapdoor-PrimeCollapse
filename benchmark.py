@@ -36,10 +36,20 @@ def forge_claim(a, b, c_claim):
     return {"c": c_claim, "Ca": Ca, "Cb": Cb, "T": T, "z": z, "rp_a": rp_a, "rp_x": rp_x}
 
 
+def wide(fn):
+    """Run fn with the proven range widened to 128 bits (Python reference only), then restore 32."""
+    Z.set_range_bits(128)
+    try:
+        return fn()
+    finally:
+        Z.set_range_bits(32)
+
+
 def soundness_tests():
     """Each entry: (description, expected verifier result, function returning actual result)."""
     base = Z.prove(1009, 2003)
     M = 2 ** Z.N_BITS
+    pub32 = Z.prove(1009, 2003)
 
     def tampered(mutator):
         pub = copy.deepcopy(base)
@@ -77,6 +87,11 @@ def soundness_tests():
         ("boundary a = c (x = 0) is accepted",                True,  lambda: Z.verify(Z.prove(77, 77))),
         ("boundary a = 0, c = 2^N - 1 is accepted",           True,  lambda: Z.verify(Z.prove(0, 2 * (M - 1)))),
         ("boundary a = x = 2^N - 1 (max c) is accepted",      True,  lambda: Z.verify(Z.prove(M - 1, 3 * (M - 1)))),
+        ("128-bit range: boundary a = 0, c = 2^128 - 1 is accepted", True,  lambda: wide(lambda: Z.verify(Z.prove(0, 2 * (2 ** 128 - 1))))),
+        ("128-bit range: boundary a = x = 2^128 - 1 is accepted", True,  lambda: wide(lambda: Z.verify(Z.prove(2 ** 128 - 1, 3 * (2 ** 128 - 1))))),
+        ("128-bit range: a = 2^128 is rejected",              False, lambda: wide(lambda: Z.verify(Z.prove(2 ** 128, 2 ** 128 + 2, _cheat=True)))),
+        ("128-bit range: field-wrapped claim c + Q is rejected", False, lambda: wide(lambda: Z.verify(forge_claim(1009, 2003, 1506 + Z.Q)))),
+        ("128-bit range: a 32-bit-range proof does not verify as 128-bit", False, lambda: wide(lambda: Z.verify(pub32))),
         ("tampered commitment Ca is rejected",                False, lambda: tampered(lambda p: p.__setitem__("Ca", p["Ca"] * Z.G % Z.P))),
         ("tampered Schnorr response z is rejected",           False, lambda: tampered(lambda p: p.__setitem__("z", (p["z"] + 1) % Z.Q))),
         ("tampered bit OR-proof is rejected",                 False, lambda: tampered(tamper_bit_proof)),

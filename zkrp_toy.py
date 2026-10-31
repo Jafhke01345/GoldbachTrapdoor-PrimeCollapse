@@ -77,8 +77,17 @@ P, Q = gen_safe_prime(256)
 G = hash_to_subgroup(b"zkrp-toy-g", P)
 H = hash_to_subgroup(b"zkrp-toy-h", P)
 G_INV = pow(G, -1, P)
-N_BITS = 32                                   # values are proven to lie in [0, 2^32)
+N_BITS = 32                                   # values are proven to lie in [0, 2^N_BITS)
 assert 2 ** (N_BITS + 3) < Q                  # a + b = 2c cannot wrap around mod q
+
+
+def set_range_bits(n_bits):
+    """Change the proven range to [0, 2^n_bits). Refuses widths that would let a + b = 2c wrap mod Q
+    (the integer-level guarantee needs 2^(n_bits+3) < Q). Python reference only: the C module is 32-bit."""
+    global N_BITS
+    if type(n_bits) is not int or n_bits < 1 or 2 ** (n_bits + 3) >= Q:
+        raise ValueError(f"range width must satisfy 1 <= n_bits and 2^(n_bits+3) < Q (max {Q.bit_length() - 4})")
+    N_BITS = n_bits
 
 
 def commit(m, r):
