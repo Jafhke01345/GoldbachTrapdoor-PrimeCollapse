@@ -34,3 +34,9 @@ jobs:
         run: |
           ./zkrp_fast selftest
           python test_fast.py . ./zkrp_fast
+
+      - name: Native module at 128-bit range
+        run: |
+          gcc -O3 -Wall -Wextra -DNB=128 -o zkrp_fast_wide zkrp_fast.c
+          ./zkrp_fast_wide selftest
+          ZKRP_NBITS=128 python test_fast.py . ./zkrp_fast_wide

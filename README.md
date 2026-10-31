@@ -50,25 +50,31 @@ python check_repo.py                # repository guard
 gcc -O3 -march=native -o zkrp_fast zkrp_fast.c
 ./zkrp_fast selftest
 python test_fast.py . ./zkrp_fast   # differential and forgery tests against zkrp_toy.py
+
+# the range width is a build option; 128-bit version (Python reference must use the same width)
+gcc -O3 -march=native -DNB=128 -o zkrp_fast_wide zkrp_fast.c
+ZKRP_NBITS=128 python test_fast.py . ./zkrp_fast_wide
 ```
 
 On Windows with MinGW-w64, add `-lbcrypt` to the `gcc` line. The native module has only been built
-and tested on Linux with GCC 13.
+and tested on Linux with GCC 13. It refuses a group too small for its width (`2^(NB+3) < Q` is required).
 
 CI (`.github/workflows/ci.yml`) runs all of the above on every push.
 
 ## Speed
 
 Measured on one shared 2-vCPU Linux sandbox (2.1 GHz Xeon, Python 3.13, GCC 13), same 256-bit group,
-32-bit range, medians over many runs:
+medians over many runs:
 
-| Build | Prove | Verify |
-|---|---|---|
-| Python (`zkrp_toy.py`) | about 27 ms | about 27 ms |
-| C, `-O3 -march=native` | about 1.1 ms | about 1.5 ms |
+| Range | Build | Prove | Verify | Proof size |
+|---|---|---|---|---|
+| 32-bit | Python (`zkrp_toy.py`) | about 28 ms | about 28 ms | about 14 KiB |
+| 32-bit | C, `-O3 -march=native` | about 1.0 ms | about 1.5 ms | |
+| 128-bit | Python | about 112 ms | about 118 ms | about 56 KiB |
+| 128-bit | C, `-DNB=128` | about 4.2 ms | about 5.7 ms | |
 
-That is roughly 25x for proving and 18x for verifying. Timings on a shared machine are noisy, so treat
-the ratios as the reliable part. Proof size is about 14 KiB and grows linearly with the bit range.
+That is roughly 27x for proving and 19 to 21x for verifying at both widths. Timings on a shared machine are
+noisy, so treat the ratios as the reliable part. Proof size grows linearly with the bit range.
 
 ## How the protocol works
 
@@ -93,7 +99,7 @@ the statement implies.
   as Ristretto255 and a real range-proof system such as Bulletproofs.
 - Default range is 32 bits. The Python reference can widen it with `zkrp_toy.set_range_bits(n)` up to the toy
   group's no-wrap limit (about 250 bits), and `goldbach_relation.py` tests 128-bit primes with multi-tier
-  certificates that way. The C module is 32-bit only (its prover takes 64-bit inputs). Endpoints beyond the
+  certificates that way. The C module takes the width as a build option (`-DNB=128`; default 32). Endpoints beyond the
   group size need limb-wise vector commitments.
 - No zero-knowledge primality proof (see `PRIMALITY.md`), and no audit.
 - Not constant-time.

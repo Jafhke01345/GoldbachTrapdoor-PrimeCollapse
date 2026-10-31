@@ -39,7 +39,10 @@ typedef uint32_t u32;
 typedef uint8_t u8;
 typedef unsigned __int128 u128;
 
-#define NB 32 /* range is [0, 2^NB) */
+#ifndef NB
+#define NB 32 /* range is [0, 2^NB); override at build time, e.g. -DNB=128 */
+#endif
+_Static_assert(NB >= 1 && NB <= 248, "NB must keep 2^(NB+3) below the 255-bit group order");
 
 /* ---------------------------------------------------------------- 256-bit integers */
 typedef struct { u64 v[4]; } fe;
@@ -75,6 +78,22 @@ static int fe_is_zero(const fe *a) { return !(a->v[0] | a->v[1] | a->v[2] | a->v
 static int fe_bitlen(const fe *a) {
     for (int i = 3; i >= 0; i--) if (a->v[i]) return i * 64 + 64 - __builtin_clzll(a->v[i]);
     return 0;
+}
+
+static void fe_shr1(fe *a) {
+    for (int i = 0; i < 4; i++) a->v[i] = (a->v[i] >> 1) | (i < 3 ? a->v[i + 1] << 63 : 0);
+}
+/* decimal string of at most 78 digits that fits in 256 bits; anything else is rejected */
+static int fe_parse_dec(const char *s, size_t n, fe *out) {
+    memset(out, 0, sizeof *out);
+    if (n == 0 || n > 78) return 0;
+    for (size_t i = 0; i < n; i++) {
+        if (s[i] < '0' || s[i] > '9') return 0;
+        u128 carry = (u128)(s[i] - '0');
+        for (int k = 0; k < 4; k++) { u128 t = (u128)out->v[k] * 10 + carry; out->v[k] = (u64)t; carry = t >> 64; }
+        if (carry) return 0;
+    }
+    return 1;
 }
 
 static int fe_parse(const char *s, size_t n, fe *out) {
@@ -362,7 +381,7 @@ static int verify(const transcript *t) {
     }
     /* integer-level guarantee: c must lie in [0, 2^(NB+1)) so that c = a + x exactly over the integers
        (the proofs bind c only mod Q; a claimed c + Q would otherwise verify) */
-    if (t->c.v[1] | t->c.v[2] | t->c.v[3] || (t->c.v[0] >> (NB + 1))) return 0;
+    if (fe_bitlen(&t->c) > NB + 1) return 0;
     /* cheap hash checks first */
     fe e; chal_schnorr(&e, &t->c, &t->Ca, &t->Cb, &t->T);
     /* Schnorr: h^z == T * D^e with D = Ca*Cb*g^(-2c) */
@@ -410,14 +429,14 @@ static void or_prove(const fe *Bm, int bit, const fe *r, const char *ctx, fe *B_
     out[4 + real] = z_real; out[4 + sim] = z_sim;
 }
 
-static void range_prove(transcript *tr, int which, u64 m, const fe *r) {
+static void range_prove(transcript *tr, int which, const fe *m, const fe *r) {
     fe rs[NB], acc = fe_u64(0), s;
     for (int i = 1; i < NB; i++) rnd_below_q(&rs[i]);
     for (int i = NB - 1; i >= 1; i--) { addmod(&acc, &acc, &rs[i], &Q); addmod(&acc, &acc, &acc, &Q); }
     submod(&rs[0], r, &acc, &Q); (void)s;
     char ctx[16];
     for (int i = 0; i < NB; i++) {
-        int bit = (int)((m >> i) & 1);
+        int bit = (int)((m->v[i >> 6] >> (i & 63)) & 1);
         fe Bm; fb_exp(&MP, &Bm, &FH, &rs[i]);
         if (bit) mmul(&MP, &Bm, &Bm, &g_m);
         snprintf(ctx, sizeof ctx, "%c:%d", which ? 'x' : 'a', i);
@@ -425,21 +444,23 @@ static void range_prove(transcript *tr, int which, u64 m, const fe *r) {
     }
 }
 
-static int prove(u64 a, u64 b, transcript *tr) {
-    if (a > (1ULL << 62) || b > (1ULL << 62) || ((a + b) & 1)) return 0;
-    u64 c = (a + b) / 2;
-    if (a > c) return 0;
-    u64 x = c - a;
-    if ((a >> NB) || (x >> NB)) return 0;
+static int prove(const fe *a, const fe *b, transcript *tr) {
+    if (fe_bitlen(a) > NB || fe_bitlen(b) > NB + 2) return 0;      /* a < 2^NB; b = a + 2x < 2^(NB+2) */
+    fe sum; fe_add(&sum, a, b);                                    /* < 2^(NB+3) <= 2^251: no carry out */
+    if (sum.v[0] & 1) return 0;
+    fe c = sum; fe_shr1(&c);
+    if (fe_cmp(a, &c) > 0) return 0;                               /* a <= c */
+    fe x; fe_sub(&x, &c, a);
+    if (fe_bitlen(&x) > NB) return 0;                              /* c - a < 2^NB */
     fe ra, rb, rx, ga, gb, hr, Cam, Cbm;
     rnd_below_q(&ra); rnd_below_q(&rb); negmod_q(&rx, &ra);
-    fe av = fe_u64(a), bv = fe_u64(b);
+    fe av = *a, bv = *b;
     fb_exp(&MP, &ga, &FG, &av); fb_exp(&MP, &hr, &FH, &ra); mmul(&MP, &Cam, &ga, &hr);
     fb_exp(&MP, &gb, &FG, &bv); fb_exp(&MP, &hr, &FH, &rb); mmul(&MP, &Cbm, &gb, &hr);
-    tr->c = fe_u64(c);
+    tr->c = c;
     from_mont(&MP, &tr->Ca, &Cam); from_mont(&MP, &tr->Cb, &Cbm);
     range_prove(tr, 0, a, &ra);
-    range_prove(tr, 1, x, &rx);
+    range_prove(tr, 1, &x, &rx);
     fe s, t, Tm, e, es;
     addmod(&s, &ra, &rb, &Q);
     rnd_below_q(&t); fb_exp(&MP, &Tm, &FH, &t); from_mont(&MP, &tr->T, &Tm);
@@ -473,7 +494,8 @@ static int load_params(const char *path) {
     char *p = buf; fe a, b, c, d;
     int ok = read_fe(&p, &a) && read_fe(&p, &b) && read_fe(&p, &c) && read_fe(&p, &d);
     free(buf);
-    return ok && proto_init(&a, &b, &c, &d);
+    /* the integer-level guarantee needs 2^(NB+3) < Q */
+    return ok && fe_bitlen(&b) >= NB + 4 && proto_init(&a, &b, &c, &d);
 }
 static int read_transcript(char **p, transcript *t) {
     if (!(read_fe(p, &t->c) && read_fe(p, &t->Ca) && read_fe(p, &t->Cb) && read_fe(p, &t->T) && read_fe(p, &t->z))) return 0;
@@ -494,6 +516,15 @@ static void write_transcript(FILE *f, const transcript *t) {
 }
 
 static int cmp_double(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return (x > y) - (x < y); }
+
+static void fe_rand_bits(fe *out, int bits) {
+    rng_bytes(out, sizeof *out);
+    for (int i = 0; i < 4; i++) {
+        int lo = i * 64;
+        if (bits <= lo) out->v[i] = 0;
+        else if (bits < lo + 64) out->v[i] &= (1ULL << (bits - lo)) - 1;
+    }
+}
 
 int main(int argc, char **argv) {
     if (argc >= 2 && !strcmp(argv[1], "selftest")) {
@@ -524,10 +555,10 @@ int main(int argc, char **argv) {
         char *p = buf, *tk; size_t n; int eol;
         for (;;) {
             if (!next_tok(&p, &tk, &n, &eol)) break;
-            u64 a = strtoull(tk, NULL, 10);
+            fe a, b; int oka = fe_parse_dec(tk, n, &a);
             if (!next_tok(&p, &tk, &n, &eol)) break;
-            u64 b = strtoull(tk, NULL, 10);
-            if (prove(a, b, &tr)) write_transcript(stdout, &tr); else puts("ERR");
+            int okb = fe_parse_dec(tk, n, &b);
+            if (oka && okb && prove(&a, &b, &tr)) write_transcript(stdout, &tr); else puts("ERR");
         }
         free(buf); return 0;
     }
@@ -536,9 +567,9 @@ int main(int argc, char **argv) {
         double *tp = (double *)malloc(sizeof(double) * (size_t)N), *tv = (double *)malloc(sizeof(double) * (size_t)N);
         int allok = 1;
         for (int i = 0; i < N + 3; i++) {                       /* 3 warm-up rounds */
-            u32 r1, r2; rng_bytes(&r1, 4); rng_bytes(&r2, 4);
-            u64 a = r1 >> 2, b = a + 2 * (u64)(r2 >> 3);
-            double t0 = now_ms(); int ok = prove(a, b, &tr); double t1 = now_ms();
+            fe a, x, b; fe_rand_bits(&a, NB - 1); fe_rand_bits(&x, NB - 1);
+            fe_add(&b, &a, &x); fe_add(&b, &b, &x);                /* b = a + 2x */
+            double t0 = now_ms(); int ok = prove(&a, &b, &tr); double t1 = now_ms();
             int v = verify(&tr); double t2 = now_ms();
             allok &= ok && v;
             if (i >= 3) { tp[i - 3] = t1 - t0; tv[i - 3] = t2 - t1; }

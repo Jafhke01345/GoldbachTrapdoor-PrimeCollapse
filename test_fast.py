@@ -21,6 +21,11 @@ EXE = sys.argv[2] if len(sys.argv) > 2 else "./zkrp_fast"
 sys.path.insert(0, PY_DIR)
 import zkrp_toy as Z  # noqa: E402
 
+# The native module's range width is a build option (gcc -DNB=128). Run this file with ZKRP_NBITS set to
+# the same value so the Python reference proves the same width.
+if os.environ.get("ZKRP_NBITS", "32") != "32":
+    Z.set_range_bits(int(os.environ["ZKRP_NBITS"]))
+
 tmp = tempfile.mkdtemp()
 PARAMS = os.path.join(tmp, "params.txt")
 with open(PARAMS, "w") as f:
@@ -135,7 +140,7 @@ check("tampered C proofs rejected by Python", not any(Z.verify(p) for p in tc))
 check("tampered C proofs rejected by C", c_verify(tc) == ["0"] * len(tc))
 
 print("\n4) C prover refuses bad inputs")
-bad = [(3, 1), (1, 2), (2 ** 33, 2 ** 33), (5, 4), (2 ** 40, 2 ** 40 + 2)]     # a>b, odd sum, a>=2^N, odd, a>=2^N
+bad = [(3, 1), (1, 2), (2 ** (NB + 1), 2 ** (NB + 1)), (5, 4), (2 ** (NB + 8), 2 ** (NB + 8) + 2)]     # a>b, odd sum, a>=2^N, odd, a>=2^N
 res = c_prove(bad)
 check("a > b, odd sum and out-of-range inputs all give ERR", res == ["ERR"] * len(bad))
 
@@ -228,7 +233,7 @@ def custom_proof(a, b, ms, makers, nc_Ca=False, nc_T=False, nc_bit=None):
 
 zeros = [0] * NB
 ms_neg = [-3] + [0] * (NB - 1)                         # "a = -3": bit 0 holds the non-bit value -3
-ms_top = [0] * (NB - 1) + [2]                          # "a = 2^32": top bit holds the non-bit value 2
+ms_top = [0] * (NB - 1) + [2]                          # "a = 2^NB": top bit holds the non-bit value 2
 none = [None] * NB
 sanity = custom_proof(1009, 2003, [(1009 >> i) & 1 for i in range(NB)], none)
 check("sanity: custom builder with honest bits produces an accepted proof (Python and C)",
@@ -241,10 +246,10 @@ forgeries = {
         custom_proof(-3, 1001, ms_neg, [half_forged(0)] + [None] * (NB - 1)),
     "non-bit value -3, branch 1 valid / branch 0 garbage (e0+e1 correct)":
         custom_proof(-3, 1001, ms_neg, [half_forged(1)] + [None] * (NB - 1)),
-    "a = 2^32 hidden in the TOP bit (index 31), garbage proof there":
-        custom_proof(2 ** 32, 2 ** 32 + 1000, ms_top, [None] * (NB - 1) + [garbage]),
-    "a = 2^32 hidden in the TOP bit, branch-0-valid half forgery":
-        custom_proof(2 ** 32, 2 ** 32 + 1000, ms_top, [None] * (NB - 1) + [half_forged(0)]),
+    "a = 2^NB hidden in the TOP bit (index NB-1), garbage proof there":
+        custom_proof(2 ** NB, 2 ** NB + 1000, ms_top, [None] * (NB - 1) + [garbage]),
+    "a = 2^NB hidden in the TOP bit, branch-0-valid half forgery":
+        custom_proof(2 ** NB, 2 ** NB + 1000, ms_top, [None] * (NB - 1) + [half_forged(0)]),
     "non-bit value 2 hidden in a MIDDLE bit (index 13), garbage proof there":
         custom_proof(2 ** 13 * 2, 2 ** 13 * 2 + 1000, [0] * 13 + [2] + [0] * (NB - 14), [None] * 13 + [garbage] + [None] * (NB - 14)),
 }
@@ -290,7 +295,7 @@ for label, shift in (("c + Q", Z.Q), ("c + 2Q", 2 * Z.Q)):
     pub = forge_claim(1009, 2003, 1506 + shift)
     if pub["c"] < 2 ** 256:
         check(f"C rejects field-wrapped claim {label}", c_verify([pub]) == ["0"])
-pub = forge_claim(1009, 2003, 1506 + 2 ** 33)       # fits in 256 bits, residue differs: range proofs must fail anyway
+pub = forge_claim(1009, 2003, 1506 + 2 ** (NB + 1))       # fits in 256 bits, residue differs: range proofs must fail anyway
 check("C rejects claim c = true c + 2^33 (out of the integer bound)", c_verify([pub]) == ["0"])
 M = 2 ** NB
 extremes = [(0, 0), (77, 77), (0, 2 * (M - 1)), (M - 1, 3 * (M - 1))]
@@ -301,6 +306,16 @@ if len(got) == 4:
     check("Python verifier accepts C proofs at the boundaries", all(Z.verify(from_tokens(t_)) for t_ in toks))
 check("C prover refuses a = 2^N", c_prove([(M, M + 2)]) == ["ERR"])
 check("C prover refuses c - a = 2^N", c_prove([(0, 2 * M)]) == ["ERR"])
+
+print("\n9) the native module refuses a group too small for its range width")
+Ps, Qs = Z.gen_safe_prime(NB + 3)                  # 2^(NB+3) >= Q would let a + b = 2c wrap
+small = os.path.join(tmp, "small_params.txt")
+with open(small, "w") as f:
+    f.write(f"{Ps:x} {Qs:x} {Z.hash_to_subgroup(b'g', Ps):x} {Z.hash_to_subgroup(b'h', Ps):x}\n")
+empty = os.path.join(tmp, "empty.txt")
+open(empty, "w").write("\n")
+r = subprocess.run([EXE, "verify", small, empty], capture_output=True, text=True, timeout=60)
+check("C refuses params with 2^(NB+3) >= Q (exit 2, 'bad params')", r.returncode == 2 and "bad params" in r.stderr)
 
 print(f"\n{'ALL DIFFERENTIAL TESTS PASSED' if not failures else str(len(failures)) + ' FAILED: ' + '; '.join(failures)}")
 sys.exit(1 if failures else 0)
