@@ -19,7 +19,8 @@ It is a toy: 256-bit group, unaudited, not constant-time, not for production use
 | The whole statement as one checker: Pedersen/range proofs plus a Pocklington certificate for each committed endpoint | `goldbach_relation.py` | Implemented, adversarial self-test; **primes are opened in the clear, not zero-knowledge** |
 | Sealed midpoint: `c` published masked by two devices' one-time hash-chain headers, opened only when both reveal | `sealed_midpoint.py` | Implemented, adversarial self-test; controls who can read `c`, proves nothing about the relation |
 | Zero-knowledge proof that a graph is 3-colorable (hex SHA-256 commitments, Fiat-Shamir) | `three_coloring_zk.py` | Implemented, adversarial self-test; standalone, does not strengthen the other components |
-| Zero-knowledge proof that a hidden number below 8 is prime, via a graph built from the formula "x is prime" and the 3-coloring proof | `zk_threecolor.py` | Implemented as a demo of the mechanism; tiny numbers only, not linked to the Pedersen commitments |
+| Zero-knowledge proof that a hidden number below 8 is prime, via a graph built from the formula "x is prime" and the 3-coloring proof | `zk_threecolor.py` | Implemented as a demo of the mechanism; tiny numbers only, uses SHA-256 colour commitments and is not linked to the Pedersen commitments |
+| The same prime proof linked to a Pedersen commitment `Ca`: colours are Pedersen commitments and a shared-response Schnorr proof ties each bit of `Ca` to the colour of its variable node | `threecolor_link.py` | Implemented, adversarial self-test with removal checks; 3-bit numbers only, about 900 rounds, slow, toy group |
 | Zero-knowledge proof that the endpoints are prime | `PRIMALITY.md` | Design note only, not implemented |
 | Repository guard (structure, API, README checks) | `check_repo.py` | Implemented, run by CI |
 
@@ -50,6 +51,7 @@ python goldbach_relation.py         # combined statement: commitments, range pro
 python sealed_midpoint.py           # sealed midpoint: hash-chain headers, rotating xor/add/subtract masks
 python three_coloring_zk.py         # zero-knowledge graph 3-coloring proof
 python zk_threecolor.py             # small-prime proof through 3-coloring (about 25 s)
+python threecolor_link.py           # the same proof linked to a Pedersen commitment (about 80 s)
 python check_repo.py                # repository guard
 
 # native module (needs GCC or Clang; uses unsigned __int128, so not MSVC)
@@ -140,6 +142,26 @@ every node with a hex SHA-256 commitment, and opens only the two endpoints of on
 rounds are generated for about 2^-40 soundness error. It is a standalone teaching component: it is not
 connected to the other proofs and does not make them stronger. Reducing primality to a coloring instance
 would be far too large to be practical, so it does not hide the primes either.
+
+## Linking the prime proof to a commitment
+
+`zk_threecolor.py` alone proves that *some* hidden number below 8 is prime, but nothing ties that number to a
+Pedersen commitment. `threecolor_link.py` closes that gap for `Ca = g^a h^ra`. The bit commitments `B_i`
+recombine to `Ca` and each is proved to hide 0 or 1 with the same OR proof as the range proof. Every round
+also commits to the node colours with Pedersen commitments `K_v`, and for each bit a two-base Schnorr proof
+with ONE shared response shows that `B_i` and the colour commitment of that bit's variable node hide the
+same bit. The Fiat-Shamir hash covers the graph, `Ca`, every `B_i`, every `K` and every first message.
+So `Ca` hides a number that has a proper 3-coloring of the "x is prime" graph, which exists only for primes.
+The tests include a split cheater who uses different bits on the two sides (only the shared response
+exposes it), colourings with violated edges, transplanted proofs and every-field mutations. Cost is about 900
+rounds for 3 bits, which is why real systems use SNARKs. Zero knowledge is argued (simulation under
+Fiat-Shamir) and tested statistically, not machine-checked.
+
+Removal checks: deleting either Schnorr equation, the bit-recombination check, the edge-opening check, the
+distinct-colours check, the minimum round count, or any one of K, A, Ca, B from the hash input makes the
+self-test fail. Two removals are not caught and are judged redundant: comparing `proof["Ca"]` with the
+argument (the verifier never uses the copy), and the subgroup check on commitments of nodes that are
+neither opened nor part of a bit link (any attempt to open such a node fails anyway).
 
 ## Limitations
 

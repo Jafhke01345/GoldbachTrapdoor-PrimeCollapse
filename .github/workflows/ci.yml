@@ -29,6 +29,7 @@ jobs:
           python sealed_midpoint.py
           python three_coloring_zk.py
           python zk_threecolor.py
+          python threecolor_link.py
 
       - name: Build native module
         run: gcc -O3 -Wall -Wextra -o zkrp_fast zkrp_fast.c
