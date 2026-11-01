@@ -99,6 +99,12 @@ def challenge(*items):
     return int.from_bytes(hashlib.sha256(data).digest(), "big") % Q
 
 
+def statement_tag(c, Ca, Cb):
+    """Binds every bit proof to the whole statement: the range width, the public c and both commitments.
+    Fiat-Shamir challenges then differ between statements, so a bit proof cannot be moved into another one."""
+    return hashlib.sha256(f"{N_BITS}|{c}|{Ca}|{Cb}".encode()).hexdigest()[:32]
+
+
 # ---------------------------------------------------------------- strict encodings
 # A verifier must accept exactly ONE encoding of each proof, and only elements of the prime-order subgroup:
 #   * scalars are canonical integers in [0, Q): otherwise (e + Q) or (z + Q) is a second valid encoding
@@ -205,8 +211,9 @@ def prove(a, b, _cheat=False, _witness=None):
     Ca, Cb = commit(a, ra), commit(b, rb)
     rx = (-ra) % Q                                                    # C_x = g^c / C_a = g^x h^(-ra)
 
-    rp_a = range_prove(a, ra, N_BITS, "a", _cheat)
-    rp_x = range_prove(x, rx, N_BITS, "x", _cheat)
+    tag = statement_tag(c, Ca, Cb)
+    rp_a = range_prove(a, ra, N_BITS, f"a:{tag}", _cheat)
+    rp_x = range_prove(x, rx, N_BITS, f"x:{tag}", _cheat)
 
     s = (ra + rb) % Q
     D = Ca * Cb * pow(G, (-2 * c) % Q, P) % P                         # = h^s iff a + b == 2c
@@ -237,13 +244,14 @@ def _verify(pub, claimed_c):
     Ca, Cb = pub["Ca"], pub["Cb"]
     if not (_element(Ca) and _element(Cb) and _element(pub["T"]) and _scalar(pub["z"])):
         return False
+    tag = statement_tag(c, Ca, Cb)
     Cx = pow(G, c % Q, P) * pow(Ca, -1, P) % P
     D = Ca * Cb * pow(G, (-2 * c) % Q, P) % P
     e = challenge(c, Ca, Cb, pub["T"])
     sum_ok = pow(H, pub["z"], P) == pub["T"] * pow(D, e, P) % P
     return (sum_ok
-            and range_verify(Ca, pub["rp_a"], N_BITS, "a")
-            and range_verify(Cx, pub["rp_x"], N_BITS, "x"))
+            and range_verify(Ca, pub["rp_a"], N_BITS, f"a:{tag}")
+            and range_verify(Cx, pub["rp_x"], N_BITS, f"x:{tag}"))
 
 
 def proof_size_bytes(pub):

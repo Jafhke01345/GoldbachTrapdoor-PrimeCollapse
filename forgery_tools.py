@@ -57,8 +57,9 @@ def negated_transcript(a, b):
     x = c - a
     ra, rb = secrets.randbelow(Z.Q), secrets.randbelow(Z.Q)
     Ca, Cb = _neg(Z.commit(a, ra)), _neg(Z.commit(b, rb))
-    rp_a = _range_prove_negated(a, ra, Z.N_BITS, "a")
-    rp_x = _range_prove_negated(x, (-ra) % Z.Q, Z.N_BITS, "x")
+    tag = Z.statement_tag(c, Ca, Cb)
+    rp_a = _range_prove_negated(a, ra, Z.N_BITS, f"a:{tag}")
+    rp_x = _range_prove_negated(x, (-ra) % Z.Q, Z.N_BITS, f"x:{tag}")
     s = (ra + rb) % Z.Q
     t = secrets.randbelow(Z.Q)
     T = pow(Z.H, t, Z.P)
@@ -76,3 +77,22 @@ def shift_scalar(pub, where):
         Bs, proofs = p[key]
         pr = list(proofs[i]); pr[k] += Z.Q; proofs[i] = tuple(pr)
     return p
+
+
+def transplant_transcript(a, b, b2):
+    """Statement 2 (a, b2) built by someone who knows every witness, but whose range proof for `a` is
+    TAKEN FROM statement 1 (a, b). Both statements share Ca, so the bit commitments and OR-proofs are the
+    same objects. Everything else is honest. Only statement binding in the Fiat-Shamir challenges can reject
+    it: without it, the transplanted proofs verify."""
+    w = {}
+    pub1 = Z.prove(a, b, _witness=w)
+    ra = w["ra"]
+    rb2 = secrets.randbelow(Z.Q)
+    c2 = (a + b2) // 2
+    Cb2 = Z.commit(b2, rb2)
+    tag2 = Z.statement_tag(c2, pub1["Ca"], Cb2)
+    rp_x2 = Z.range_prove(c2 - a, (-ra) % Z.Q, Z.N_BITS, f"x:{tag2}")
+    t = secrets.randbelow(Z.Q)
+    T = pow(Z.H, t, Z.P)
+    z = (t + Z.challenge(c2, pub1["Ca"], Cb2, T) * ((ra + rb2) % Z.Q)) % Z.Q
+    return {"c": c2, "Ca": pub1["Ca"], "Cb": Cb2, "T": T, "z": z, "rp_a": pub1["rp_a"], "rp_x": rp_x2}

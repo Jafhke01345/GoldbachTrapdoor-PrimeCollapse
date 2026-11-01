@@ -210,6 +210,8 @@ def custom_proof(a, b, ms, makers, nc_Ca=False, nc_T=False, nc_bit=None):
         Ca, Cb = Z.commit(a, ra), Z.commit(b, rb)
         if not nc_Ca or Ca + P_ < 2 ** 256:
             break
+    Ca_e = Ca + P_ if nc_Ca else Ca
+    tag = Z.statement_tag(c, Ca_e, Cb)
     rs = [rand_q() for _ in range(NB)]
     rs[0] = (ra - sum(rs[i] << i for i in range(1, NB))) % Q_
     Bs, proofs = [], []
@@ -218,15 +220,15 @@ def custom_proof(a, b, ms, makers, nc_Ca=False, nc_T=False, nc_bit=None):
         if nc_bit == i:
             B += P_
         Bs.append(B)
-        proofs.append(Z.or_prove(B, ms[i], rs[i], f"a:{i}") if makers[i] is None else makers[i](B, f"a:{i}"))
-    rp_x = Z.range_prove(x, (-ra) % Q_, NB, "x")
+        proofs.append(Z.or_prove(B, ms[i], rs[i], f"a:{tag}:{i}") if makers[i] is None else makers[i](B, f"a:{tag}:{i}"))
+    rp_x = Z.range_prove(x, (-ra) % Q_, NB, f"x:{tag}")
     s = (ra + rb) % Q_
     for _ in range(1000):
         t = rand_q()
         T = pow(H_, t, P_)
         if not nc_T or T + P_ < 2 ** 256:
             break
-    Ca_e, T_e = (Ca + P_ if nc_Ca else Ca), (T + P_ if nc_T else T)
+    T_e = T + P_ if nc_T else T
     e = Z.challenge(c, Ca_e, Cb, T_e)
     return {"c": c, "Ca": Ca_e, "Cb": Cb, "T": T_e, "z": (t + e * s) % Q_, "rp_a": (Bs, proofs), "rp_x": rp_x}
 
@@ -284,8 +286,9 @@ def forge_claim(a, b, c_claim):
     c = (a + b) // 2
     ra, rb = secrets.randbelow(Z.Q), secrets.randbelow(Z.Q)
     Ca, Cb = Z.commit(a, ra), Z.commit(b, rb)
-    rp_a = Z.range_prove(a, ra, NB, "a")
-    rp_x = Z.range_prove(c - a, (-ra) % Z.Q, NB, "x")
+    tag = Z.statement_tag(c_claim, Ca, Cb)
+    rp_a = Z.range_prove(a, ra, NB, f"a:{tag}")
+    rp_x = Z.range_prove(c - a, (-ra) % Z.Q, NB, f"x:{tag}")
     tt = secrets.randbelow(Z.Q)
     T = pow(Z.H, tt, Z.P)
     z = (tt + Z.challenge(c_claim, Ca, Cb, T) * ((ra + rb) % Z.Q)) % Z.Q
@@ -334,6 +337,9 @@ neg = FT.negated_transcript(1009, 2003)
 check("negated Ca, Cb (outside the subgroup): Python rejects, C rejects", (not Z.verify(neg)) and c_verify([neg]) == ["0"])
 neg_ok_alg = Z.verify.__globals__["_element"]
 check("the negated transcript really is outside the subgroup (not a quadratic residue)", not neg_ok_alg(neg["Ca"]) and not neg_ok_alg(neg["Cb"]))
+tp = FT.transplant_transcript(1009, 2003, 2005)
+check("statement binding: range proof transplanted from another statement (same Ca): Python rejects, C rejects",
+      (not Z.verify(tp)) and c_verify([tp]) == ["0"])
 many = [Z.prove(a, a + 2 * k) for a, k in ((0, 0), (1, 1), (2 ** 20, 5), (7, 7))]
 check("C still accepts honest transcripts after the stricter checks", c_verify(many) == ["1"] * len(many))
 

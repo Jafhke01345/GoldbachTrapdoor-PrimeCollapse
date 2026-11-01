@@ -29,8 +29,9 @@ def forge_claim(a, b, c_claim):
     c = (a + b) // 2
     ra, rb = secrets.randbelow(Z.Q), secrets.randbelow(Z.Q)
     Ca, Cb = Z.commit(a, ra), Z.commit(b, rb)
-    rp_a = Z.range_prove(a, ra, Z.N_BITS, "a")
-    rp_x = Z.range_prove(c - a, (-ra) % Z.Q, Z.N_BITS, "x")
+    tag = Z.statement_tag(c_claim, Ca, Cb)
+    rp_a = Z.range_prove(a, ra, Z.N_BITS, f"a:{tag}")
+    rp_x = Z.range_prove(c - a, (-ra) % Z.Q, Z.N_BITS, f"x:{tag}")
     t = secrets.randbelow(Z.Q)
     T = pow(Z.H, t, Z.P)
     z = (t + Z.challenge(c_claim, Ca, Cb, T) * ((ra + rb) % Z.Q)) % Z.Q
@@ -103,6 +104,8 @@ def soundness_tests():
         ("commitment Ca = P - Ca (outside the subgroup) is rejected", False, lambda: tampered(lambda p: p.__setitem__("Ca", Z.P - p["Ca"]))),
         ("bit proof with 5 entries is rejected, no exception",  False, lambda: tampered(lambda p: p["rp_a"][1].__setitem__(2, p["rp_a"][1][2][:5]))),
         ("subgroup test agrees with Euler's criterion on 2000 random elements", True, lambda: all(Z._element(x) == (0 < x < Z.P and pow(x, Z.Q, Z.P) == 1) for x in [secrets.randbelow(Z.P) for _ in range(2000)])),
+        ("statement binding: range proof transplanted from another statement with the same Ca is rejected", False, lambda: Z.verify(FT.transplant_transcript(1009, 2003, 2005))),
+        ("statement binding: the transplant scenario is otherwise a valid statement (control)", True, lambda: Z.verify(Z.prove(1009, 2005))),
         ("tampered commitment Ca is rejected",                False, lambda: tampered(lambda p: p.__setitem__("Ca", p["Ca"] * Z.G % Z.P))),
         ("tampered Schnorr response z is rejected",           False, lambda: tampered(lambda p: p.__setitem__("z", (p["z"] + 1) % Z.Q))),
         ("tampered bit OR-proof is rejected",                 False, lambda: tampered(tamper_bit_proof)),

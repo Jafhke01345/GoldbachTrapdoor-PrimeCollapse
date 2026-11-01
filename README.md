@@ -111,6 +111,16 @@ transcript whose commitments are negated (multiplied by -1, an element of order 
 verifies, because the signs cancel in `Ca * Cb`. `forgery_tools.py` builds such transcripts, and
 `benchmark.py` and `test_fast.py` check that both implementations reject them.
 
+## Statement binding
+
+Every bit proof's Fiat-Shamir challenge hashes a tag of the whole statement: the range width, `c`, `Ca` and
+`Cb`. A range proof therefore cannot be lifted out of one statement and attached to another that happens to
+reuse the same `Ca`. `forgery_tools.transplant_transcript` builds that attack; `benchmark.py` and
+`test_fast.py` check that both implementations reject it. Removal checks showed that dropping `c` or `Cb`
+from the tag is caught by the tests. Dropping `Ca` or the width is not caught, and those two are
+believed redundant: `Ca` is already bound by the bit-commitment recombination, and the width by the proof
+length. The tag is cheap, so it stays.
+
 ## Sealed midpoint
 
 `sealed_midpoint.py` lets two devices that each hold a prime keep the midpoint `c` unreadable until both

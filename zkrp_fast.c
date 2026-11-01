@@ -325,6 +325,18 @@ static void digest_to_q(fe *e, const u8 d[32]) {
 static void upd_dec(sha *s, const fe *a, int sep) {
     char d[100]; int n = fe_dec(a, d); if (sep) { d[n++] = '|'; } sha_upd(s, d, (size_t)n);
 }
+/* binds every bit proof to the whole statement: range width, public c and both commitments
+   (same 32 hex characters as zkrp_toy.statement_tag) */
+static void stmt_tag(char out[33], const fe *c, const fe *Ca, const fe *Cb) {
+    sha s; u8 dg[32]; char nb[16]; sha_init(&s);
+    int n = snprintf(nb, sizeof nb, "%d|", NB); sha_upd(&s, nb, (size_t)n);
+    upd_dec(&s, c, 1); upd_dec(&s, Ca, 1); upd_dec(&s, Cb, 0);
+    sha_fin(&s, dg);
+    static const char hex[] = "0123456789abcdef";
+    for (int i = 0; i < 16; i++) { out[2 * i] = hex[dg[i] >> 4]; out[2 * i + 1] = hex[dg[i] & 15]; }
+    out[32] = 0;
+}
+
 static void chal_or(fe *e, const char *ctx, const fe *B, const fe *T0, const fe *T1) {
     sha s = PREFIX; u8 dg[32];
     sha_upd(&s, ctx, strlen(ctx)); sha_upd(&s, "|", 1);
@@ -420,9 +432,10 @@ static int verify(const transcript *t) {
         if (r == 0) { if (fe_cmp(&acc, &Cam) != 0) return 0; }
         else { mmul(&MP, &acc, &acc, &Cam); if (fe_cmp(&acc, &gc) != 0) return 0; }
     }
-    char ctx[16];
+    char ctx[64], tag[33];
+    stmt_tag(tag, &t->c, &t->Ca, &t->Cb);
     for (int r = 0; r < 2; r++) for (int i = 0; i < NB; i++) {
-        snprintf(ctx, sizeof ctx, "%c:%d", r ? 'x' : 'a', i);
+        snprintf(ctx, sizeof ctx, "%c:%s:%d", r ? 'x' : 'a', tag, i);
         if (!verify_or(&t->B[r][i], t->pr[r][i], ctx)) return 0;
     }
     return 1;
@@ -446,17 +459,17 @@ static void or_prove(const fe *Bm, int bit, const fe *r, const char *ctx, fe *B_
     out[4 + real] = z_real; out[4 + sim] = z_sim;
 }
 
-static void range_prove(transcript *tr, int which, const fe *m, const fe *r) {
+static void range_prove(transcript *tr, int which, const fe *m, const fe *r, const char *tag) {
     fe rs[NB], acc = fe_u64(0), s;
     for (int i = 1; i < NB; i++) rnd_below_q(&rs[i]);
     for (int i = NB - 1; i >= 1; i--) { addmod(&acc, &acc, &rs[i], &Q); addmod(&acc, &acc, &acc, &Q); }
     submod(&rs[0], r, &acc, &Q); (void)s;
-    char ctx[16];
+    char ctx[64];
     for (int i = 0; i < NB; i++) {
         int bit = (int)((m->v[i >> 6] >> (i & 63)) & 1);
         fe Bm; fb_exp(&MP, &Bm, &FH, &rs[i]);
         if (bit) mmul(&MP, &Bm, &Bm, &g_m);
-        snprintf(ctx, sizeof ctx, "%c:%d", which ? 'x' : 'a', i);
+        snprintf(ctx, sizeof ctx, "%c:%s:%d", which ? 'x' : 'a', tag, i);
         or_prove(&Bm, bit, &rs[i], ctx, &tr->B[which][i], tr->pr[which][i]);
     }
 }
@@ -476,8 +489,10 @@ static int prove(const fe *a, const fe *b, transcript *tr) {
     fb_exp(&MP, &gb, &FG, &bv); fb_exp(&MP, &hr, &FH, &rb); mmul(&MP, &Cbm, &gb, &hr);
     tr->c = c;
     from_mont(&MP, &tr->Ca, &Cam); from_mont(&MP, &tr->Cb, &Cbm);
-    range_prove(tr, 0, a, &ra);
-    range_prove(tr, 1, &x, &rx);
+    char tag[33];
+    stmt_tag(tag, &tr->c, &tr->Ca, &tr->Cb);
+    range_prove(tr, 0, a, &ra, tag);
+    range_prove(tr, 1, &x, &rx, tag);
     fe s, t, Tm, e, es;
     addmod(&s, &ra, &rb, &Q);
     rnd_below_q(&t); fb_exp(&MP, &Tm, &FH, &t); from_mont(&MP, &tr->T, &Tm);
