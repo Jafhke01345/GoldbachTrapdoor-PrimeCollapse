@@ -12,6 +12,7 @@ import secrets
 import sys
 import time
 
+import forgery_tools as FT
 import zkrp_toy as Z
 
 
@@ -92,6 +93,16 @@ def soundness_tests():
         ("128-bit range: a = 2^128 is rejected",              False, lambda: wide(lambda: Z.verify(Z.prove(2 ** 128, 2 ** 128 + 2, _cheat=True)))),
         ("128-bit range: field-wrapped claim c + Q is rejected", False, lambda: wide(lambda: Z.verify(forge_claim(1009, 2003, 1506 + Z.Q)))),
         ("128-bit range: a 32-bit-range proof does not verify as 128-bit", False, lambda: wide(lambda: Z.verify(pub32))),
+        ("malleability: z + Q (same residue, different encoding) is rejected",   False, lambda: Z.verify(FT.shift_scalar(base, "z"))),
+        ("malleability: challenge share e0 + Q is rejected",    False, lambda: Z.verify(FT.shift_scalar(base, ("rp_a", 5, 2)))),
+        ("malleability: challenge share e1 + Q is rejected",    False, lambda: Z.verify(FT.shift_scalar(base, ("rp_x", 9, 3)))),
+        ("malleability: response z0 + Q is rejected",           False, lambda: Z.verify(FT.shift_scalar(base, ("rp_a", 3, 4)))),
+        ("malleability: response z1 + Q is rejected",           False, lambda: Z.verify(FT.shift_scalar(base, ("rp_x", 0, 5)))),
+        ("small subgroup: Ca and Cb negated (every equation balances) is rejected", False, lambda: Z.verify(FT.negated_transcript(1009, 2003))),
+        ("commitment Ca = 0 is rejected, no exception",         False, lambda: tampered(lambda p: p.__setitem__("Ca", 0))),
+        ("commitment Ca = P - Ca (outside the subgroup) is rejected", False, lambda: tampered(lambda p: p.__setitem__("Ca", Z.P - p["Ca"]))),
+        ("bit proof with 5 entries is rejected, no exception",  False, lambda: tampered(lambda p: p["rp_a"][1].__setitem__(2, p["rp_a"][1][2][:5]))),
+        ("subgroup test agrees with Euler's criterion on 2000 random elements", True, lambda: all(Z._element(x) == (0 < x < Z.P and pow(x, Z.Q, Z.P) == 1) for x in [secrets.randbelow(Z.P) for _ in range(2000)])),
         ("tampered commitment Ca is rejected",                False, lambda: tampered(lambda p: p.__setitem__("Ca", p["Ca"] * Z.G % Z.P))),
         ("tampered Schnorr response z is rejected",           False, lambda: tampered(lambda p: p.__setitem__("z", (p["z"] + 1) % Z.Q))),
         ("tampered bit OR-proof is rejected",                 False, lambda: tampered(tamper_bit_proof)),

@@ -99,6 +99,38 @@ def challenge(*items):
     return int.from_bytes(hashlib.sha256(data).digest(), "big") % Q
 
 
+# ---------------------------------------------------------------- strict encodings
+# A verifier must accept exactly ONE encoding of each proof, and only elements of the prime-order subgroup:
+#   * scalars are canonical integers in [0, Q): otherwise (e + Q) or (z + Q) is a second valid encoding
+#     of the same proof (malleability);
+#   * group elements are canonical integers in (0, P) AND squares mod P (order dividing Q). P = 2Q + 1, so
+#     the elements outside the subgroup (such as -x, which has order 2Q or 2) would otherwise be accepted
+#     wherever the equations happen to balance, which is the usual small-subgroup weakness.
+def _scalar(x):
+    return type(x) is int and 0 <= x < Q
+
+
+def _jacobi(a, n):
+    """Jacobi symbol (a / n) for odd n > 0, by the binary algorithm (no exponentiation)."""
+    a %= n
+    r = 1
+    while a:
+        while a % 2 == 0:
+            a //= 2
+            if n % 8 in (3, 5):
+                r = -r
+        a, n = n, a
+        if a % 4 == 3 and n % 4 == 3:
+            r = -r
+        a %= n
+    return r if n == 1 else 0
+
+
+def _element(x):
+    # P = 2Q + 1 is prime, so x is in the order-Q subgroup exactly when x is a quadratic residue mod P
+    return type(x) is int and 0 < x < P and _jacobi(x, P) == 1
+
+
 # ---------------------------------------------------------------- bit proof (Schnorr OR)
 def or_prove(B, bit, r, ctx):
     """Prove B = h^r (bit 0) OR B/g = h^r (bit 1) without revealing which."""
@@ -119,7 +151,11 @@ def or_prove(B, bit, r, ctx):
 
 
 def or_verify(B, proof, ctx):
+    if not isinstance(proof, (tuple, list)) or len(proof) != 6:
+        return False
     T0, T1, e0, e1, z0, z1 = proof
+    if not (_element(B) and _element(T0) and _element(T1) and all(_scalar(v) for v in (e0, e1, z0, z1))):
+        return False
     Y0, Y1 = B, B * G_INV % P
     if (e0 + e1) % Q != challenge(ctx, B, T0, T1):
         return False
@@ -144,6 +180,8 @@ def range_prove(m, r, n, ctx, _cheat=False):
 def range_verify(C, rp, n, ctx):
     Bs, proofs = rp
     if len(Bs) != n or len(proofs) != n:
+        return False
+    if not _element(C):
         return False
     recombined = 1
     for i, B in enumerate(Bs):
@@ -197,6 +235,8 @@ def _verify(pub, claimed_c):
     if type(c) is not int or not (0 <= c < 2 ** (N_BITS + 1)):
         return False
     Ca, Cb = pub["Ca"], pub["Cb"]
+    if not (_element(Ca) and _element(Cb) and _element(pub["T"]) and _scalar(pub["z"])):
+        return False
     Cx = pow(G, c % Q, P) * pow(Ca, -1, P) % P
     D = Ca * Cb * pow(G, (-2 * c) % Q, P) % P
     e = challenge(c, Ca, Cb, pub["T"])

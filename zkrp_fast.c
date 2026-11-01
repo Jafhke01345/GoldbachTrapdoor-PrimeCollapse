@@ -359,6 +359,21 @@ typedef struct {
 } transcript;
 
 static int below_p(const fe *a) { return fe_cmp(a, &P) < 0; }
+static int below_q(const fe *a) { return fe_cmp(a, &Q) < 0; }
+
+/* Jacobi symbol (a / n) for odd n > 0, binary algorithm: only shift, compare and subtract. */
+static int jacobi(fe a, fe n) {
+    int r = 1;
+    while (!fe_is_zero(&a)) {
+        while (!(a.v[0] & 1)) { fe_shr1(&a); u64 m = n.v[0] & 7; if (m == 3 || m == 5) r = -r; }
+        if (fe_cmp(&a, &n) < 0) { fe t = a; a = n; n = t; if ((a.v[0] & 3) == 3 && (n.v[0] & 3) == 3) r = -r; }
+        fe_sub(&a, &a, &n);
+    }
+    return (n.v[0] == 1 && !(n.v[1] | n.v[2] | n.v[3])) ? r : 0;
+}
+
+/* canonical element of the order-Q subgroup: 0 < x < P and x a quadratic residue (P = 2Q + 1 is prime) */
+static int in_subgroup(const fe *x) { return !fe_is_zero(x) && below_p(x) && jacobi(*x, P) == 1; }
 
 static int verify_or(const fe *B, const fe *pr, const char *ctx) {
     fe e, e0 = pr[2], e1 = pr[3], s;
@@ -375,9 +390,11 @@ static int verify_or(const fe *B, const fe *pr, const char *ctx) {
 }
 
 static int verify(const transcript *t) {
-    if (!below_p(&t->Ca) || !below_p(&t->Cb) || !below_p(&t->T)) return 0;
+    /* strict encodings: elements canonical and in the prime-order subgroup, scalars canonical in [0, Q) */
+    if (!in_subgroup(&t->Ca) || !in_subgroup(&t->Cb) || !in_subgroup(&t->T) || !below_q(&t->z)) return 0;
     for (int r = 0; r < 2; r++) for (int i = 0; i < NB; i++) {
-        if (!below_p(&t->B[r][i]) || !below_p(&t->pr[r][i][0]) || !below_p(&t->pr[r][i][1])) return 0;
+        if (!in_subgroup(&t->B[r][i]) || !in_subgroup(&t->pr[r][i][0]) || !in_subgroup(&t->pr[r][i][1])) return 0;
+        for (int k = 2; k < 6; k++) if (!below_q(&t->pr[r][i][k])) return 0;
     }
     /* integer-level guarantee: c must lie in [0, 2^(NB+1)) so that c = a + x exactly over the integers
        (the proofs bind c only mod Q; a claimed c + Q would otherwise verify) */

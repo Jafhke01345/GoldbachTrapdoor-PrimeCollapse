@@ -317,5 +317,25 @@ open(empty, "w").write("\n")
 r = subprocess.run([EXE, "verify", small, empty], capture_output=True, text=True, timeout=60)
 check("C refuses params with 2^(NB+3) >= Q (exit 2, 'bad params')", r.returncode == 2 and "bad params" in r.stderr)
 
+print("\n10) strict encodings: malleated scalars and elements outside the subgroup, C and Python must both reject")
+import forgery_tools as FT  # noqa: E402
+base_pub = Z.prove(1009, 2003)
+check("sanity: the unmodified transcript is accepted by both", Z.verify(base_pub) and c_verify([base_pub]) == ["1"])
+variants = {
+    "z + Q": FT.shift_scalar(base_pub, "z"),
+    "e0 + Q": FT.shift_scalar(base_pub, ("rp_a", NB // 2, 2)),
+    "e1 + Q": FT.shift_scalar(base_pub, ("rp_x", NB - 1, 3)),
+    "z0 + Q": FT.shift_scalar(base_pub, ("rp_a", 0, 4)),
+    "z1 + Q": FT.shift_scalar(base_pub, ("rp_x", NB // 3, 5)),
+}
+for name, pub in variants.items():
+    check(f"scalar {name}: Python rejects, C rejects", (not Z.verify(pub)) and c_verify([pub]) == ["0"])
+neg = FT.negated_transcript(1009, 2003)
+check("negated Ca, Cb (outside the subgroup): Python rejects, C rejects", (not Z.verify(neg)) and c_verify([neg]) == ["0"])
+neg_ok_alg = Z.verify.__globals__["_element"]
+check("the negated transcript really is outside the subgroup (not a quadratic residue)", not neg_ok_alg(neg["Ca"]) and not neg_ok_alg(neg["Cb"]))
+many = [Z.prove(a, a + 2 * k) for a, k in ((0, 0), (1, 1), (2 ** 20, 5), (7, 7))]
+check("C still accepts honest transcripts after the stricter checks", c_verify(many) == ["1"] * len(many))
+
 print(f"\n{'ALL DIFFERENTIAL TESTS PASSED' if not failures else str(len(failures)) + ' FAILED: ' + '; '.join(failures)}")
 sys.exit(1 if failures else 0)

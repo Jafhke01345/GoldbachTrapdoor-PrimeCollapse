@@ -74,13 +74,15 @@ medians over many runs:
 
 | Range | Build | Prove | Verify | Proof size |
 |---|---|---|---|---|
-| 32-bit | Python (`zkrp_toy.py`) | about 28 ms | about 28 ms | about 14 KiB |
-| 32-bit | C, `-O3 -march=native` | about 1.0 ms | about 1.5 ms | |
-| 128-bit | Python | about 112 ms | about 118 ms | about 56 KiB |
-| 128-bit | C, `-DNB=128` | about 4.2 ms | about 5.7 ms | |
+| 32-bit | Python (`zkrp_toy.py`) | about 28 ms | about 36 ms | about 14 KiB |
+| 32-bit | C, `-O3 -march=native` | about 1 to 1.7 ms | about 3.3 ms | |
+| 128-bit | Python | about 106 ms | about 139 ms | about 56 KiB |
+| 128-bit | C, `-DNB=128` | about 4.4 ms | about 8.6 ms | |
 
-That is roughly 27x for proving and 19 to 21x for verifying at both widths. Timings on a shared machine are
-noisy, so treat the ratios as the reliable part. Proof size grows linearly with the bit range.
+That is roughly 16 to 24x for proving and 11 to 16x for verifying. Verification became slower when the strict
+encoding checks were added (every group element in a transcript gets a subgroup test). Timings on this
+shared machine vary noticeably from run to run, so treat the ratios as indicative only. Proof size grows
+linearly with the bit range.
 
 ## How the protocol works
 
@@ -98,6 +100,16 @@ Without that check a transcript claiming `c + Q` would verify; `benchmark.py` an
 
 The verifier learns `c`, and therefore `a + b`. Nothing else about `a` and `b` is revealed beyond what
 the statement implies.
+
+## Strict encodings
+
+Both verifiers accept exactly one encoding of each proof. Scalars must be canonical integers in `[0, Q)`, so
+`e + Q` or `z + Q` (the same value, different bytes) is rejected. Every group element in a transcript must
+also be a canonical integer in `(0, P)` and lie in the prime-order subgroup, tested with a Jacobi symbol
+(`P = 2Q + 1` is a safe prime, so the subgroup is exactly the quadratic residues). Without that check, a
+transcript whose commitments are negated (multiplied by -1, an element of order 2 outside the subgroup)
+verifies, because the signs cancel in `Ca * Cb`. `forgery_tools.py` builds such transcripts, and
+`benchmark.py` and `test_fast.py` check that both implementations reject them.
 
 ## Sealed midpoint
 
