@@ -1,9 +1,10 @@
 # Zero-Knowledge Primality via Pocklington Chains (design note)
 
-**Status: design document.** The repo contains a *public* reference verifier
-(`pocklington_chain.py`) and a prototype of the commitment and range-proof layers
-(`zkrp_toy.py`). The in-circuit (SNARK) part described below is **not implemented**, and the
-cost figures are rough estimates, not measurements.
+**Status: design document, plus a working prototype for numbers below 2^64.** The repo contains a *public*
+reference verifier (`pocklington_chain.py`), a prototype of the commitment and range-proof layers
+(`zkrp_toy.py`), and `stark_primality.py`, a hash-based STARK that implements the circuit of section 2 for a
+hidden `n < 2^64` (see section 7). The cost figures in section 4 refer to the 1024-bit case, are rough
+estimates, and are not measurements.
 
 ## Goal
 
@@ -92,3 +93,20 @@ magnitude cheaper. Benchmark before relying on these numbers.
 
 Library selection, a production curve, an implemented circuit, the commitment link of
 section 3, and an independent cryptographic review.
+
+## 7. What is implemented (stark_primality.py)
+
+A hash-based STARK (`stark_core.py`) instead of a pairing SNARK, so there is no trusted setup. Measured on
+this container: a proof for a 64-bit prime with a five-tier chain (profile 64, 33, 17, 9, 5; terminal prime 3)
+takes about 9 s to produce, 0.1 s to verify and is about 420 KiB; the trace has 686 real rows and 144 columns.
+
+- Modular multiplication is a gadget: `A*B = Q*N + V` with `Q` and `V` range-checked to 64 bits by bit
+  columns, so no wrap can occur in the 180-bit field. Exponentiation is a square-and-multiply ladder with
+  boolean witness bits and an exponent register that is compared with `(n-1)/2`, `2R` or `q`.
+- The Bezout witness replaces a gcd loop, exactly as in section 2. `R <= 2q - 1` replaces `R < q` (the chain
+  uses `F = 2q`, so `4q^2 > n` is the condition that matters).
+- The chain ends at 3, tier links force each `q` to be the next tier's `n`.
+- The public input is `cm = MiMC(n, salt)`: 114 rounds of `x -> (x + salt + k_i)^3` in the STARK field.
+  This binds `n` inside the circuit; linking it to the Pedersen commitment `Ca` is still missing (section 3).
+- Not done: 1024-bit numbers (the 64-bit limbs of section 2 and a larger field), the Pedersen link, a hiding
+  argument beyond random padding and masking, an audit. The size profile (chain length) is public.

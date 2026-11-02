@@ -30,6 +30,8 @@ jobs:
           python three_coloring_zk.py
           python zk_threecolor.py
           python threecolor_link.py
+          python stark_core.py
+          python stark_primality.py
 
       - name: Build native module
         run: gcc -O3 -Wall -Wextra -o zkrp_fast zkrp_fast.c
