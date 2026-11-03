@@ -30,6 +30,7 @@ jobs:
           python three_coloring_zk.py
           python zk_threecolor.py
           python threecolor_link.py
+          python group_params.py
           python stark_core.py
           python stark_curve.py
           python stark_primality.py

@@ -23,7 +23,7 @@ REQUIRED = [
     "README.md", "LICENSE", "PRIMALITY.md", ".gitignore",
     "zkrp_toy.py", "benchmark.py", "audit_old_trapdoor.py",
     "pocklington_chain.py", "zk_primality_circuit.py",
-    "zkrp_fast.c", "test_fast.py", "check_repo.py", "certificate_adapter.py", "goldbach_relation.py", "sealed_midpoint.py", "three_coloring_zk.py", "threecolor_link.py", "stark_core.py", "stark_primality.py", "stark_curve.py", "link_commitments.py", "goldbach_stark.py", "SPEC.md",
+    "zkrp_fast.c", "test_fast.py", "check_repo.py", "certificate_adapter.py", "goldbach_relation.py", "sealed_midpoint.py", "three_coloring_zk.py", "threecolor_link.py", "stark_core.py", "stark_primality.py", "stark_curve.py", "link_commitments.py", "goldbach_stark.py", "SPEC.md", "group_params.py",
 ]
 
 # module -> names that must be defined at top level (its public API)
@@ -37,6 +37,7 @@ API = {
     "stark_primality.py": {"PrimeAIR", "prove_prime", "verify_prime", "build_rows", "commit", "make_chain"},
     "stark_curve.py": {"commit", "add", "mul"},
     "link_commitments.py": {"prove", "verify"},
+    "group_params.py": {"derive", "verify_certificate"},
     "goldbach_stark.py": {"prove", "verify"},
     "sealed_midpoint.py": {"HashChain", "Opener", "seal", "open_and_verify"},
     "goldbach_relation.py": {"certify", "prove_relation", "verify_relation"},
@@ -141,7 +142,7 @@ def main():
     refs = set(re.findall(r"(?<![\w/.-])([\w][\w./-]*\.(?:py|c|md|yml|ps1))\b", readme))
     missing = sorted(r for r in refs if not os.path.exists(os.path.join(ROOT, r)))
     check("every file named in the README exists", not missing, f"missing: {missing}")
-    for f in ("zkrp_fast.c", "test_fast.py", "pocklington_chain.py", "zk_primality_circuit.py", "certificate_adapter.py", "goldbach_relation.py", "sealed_midpoint.py", "three_coloring_zk.py", "threecolor_link.py", "stark_core.py", "stark_primality.py", "stark_curve.py", "link_commitments.py", "goldbach_stark.py", "SPEC.md"):
+    for f in ("zkrp_fast.c", "test_fast.py", "pocklington_chain.py", "zk_primality_circuit.py", "certificate_adapter.py", "goldbach_relation.py", "sealed_midpoint.py", "three_coloring_zk.py", "threecolor_link.py", "stark_core.py", "stark_primality.py", "stark_curve.py", "link_commitments.py", "goldbach_stark.py", "SPEC.md", "group_params.py"):
         check(f"README mentions {f}", f in readme)
 
     print(f"\n{'REPO GUARD PASSED' if not failures else str(len(failures)) + ' GUARD CHECK(S) FAILED: ' + '; '.join(failures)}")

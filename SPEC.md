@@ -21,34 +21,39 @@ Conventions: integers are written in decimal inside hashed strings; `||` is byte
 
 ### 1.1 Repository group (zkrp_toy.py)
 
-`P = 2Q + 1`, 256-bit safe prime, fixed constants:
+`P = 2Q + 1`, 256-bit safe prime (`Q` has 255 bits), fixed constants with a deterministic primality certificate
+(`group_params.py`):
 
 ```
-P = 0xa2e58466d9980ae87d1f7a606efde752dce974ecfbfedbe32712554c931e894b
-Q = 0x5172c2336ccc05743e8fbd30377ef3a96e74ba767dff6df193892aa6498f44a5
+P = 0xb8f344dc29e7ea92c63af4fa56718631ea89925a13bcd4bee8880462fddd2903
+Q = 0x5c79a26e14f3f549631d7a7d2b38c318f544c92d09de6a5f744402317eee9481
 ```
 
-Derivation (`derive_fixed_group`, seed `b"zkrp-toy-group-v1"`): for `ctr = 0, 1, 2, ...`
-1. `d = H256(seed || ctr as 8-byte big-endian)`.
-2. `q = (int(d) >> 1) | 2^254 | 1` (a 255-bit odd number), `p = 2q + 1`.
-3. Skip if `q` or `p` is divisible by an odd prime below 2000.
-4. Accept the first `ctr` for which both `q` and `p` pass Miller-Rabin with the 40 FIXED bases 2, 3, 5, ..., 173 (the first
-   40 primes). The acceptance test is deterministic, so the seed determines the result.
+Pocklington's theorem (used for every step): if `n - 1 = 2qR` with `q` prime, `1 <= R <= 2q - 1` (so `(2q)^2 > n`), and a base `a`
+satisfies `a^(n-1) = 1`, `gcd(a^((n-1)/2) - 1, n) = 1` and `gcd(a^((n-1)/q) - 1, n) = 1`, then `n` is prime.
 
-The accepted counter is `ctr = 25902`. `benchmark.py` re-derives the constants and compares. Precisely what this establishes:
-the constants are the first candidate accepted by that specified procedure. It does not establish that the accepted number is
-prime (a composite could in principle pass 40 fixed bases) nor, independently, that every earlier candidate is composite;
-the earlier ones were rejected by the same test. See section 1.3 for the assurance that `P` and `Q` are prime.
-The import-time check in `zkrp_toy.py` is a separate test with 40 random bases.
-The subgroup of order `Q` is the set of quadratic residues; `_element(x)` accepts exactly integers `0 < x < P` with Jacobi symbol 1.
+Derivation (`group_params.derive`, seed `b"zkrp-toy-group-v2"`), all deterministic:
+1. Tier 0: `q0 = 65537`, prime by trial division.
+2. Tiers 1 to 3: with `q` the previous prime, for `ctr = 0, 1, ...` take `R = q + (X mod q)` with
+   `X = int(H256(seed || tier || ctr || 0x00) || H256(seed || tier || ctr || 0x01))` (`tier` one byte, `ctr` eight bytes big-endian),
+   `n = 2qR + 1`; the first `n` with a Pocklington witness (smallest `a >= 2`) is the next prime.
+3. Tier 4: `R` is drawn the same way in the range that makes `Q = 2qR + 1` exactly 255 bits; accept the first `Q` that has a witness
+   and whose `P = 2Q + 1` has a witness for the known factor `Q` (`a^(P-1) = 1`, `gcd(a^2 - 1, P) = 1`, `Q^2 > P`).
+   Trial division by odd primes below 1000 and a base-2 Fermat test only skip candidates; acceptance is the witness test.
+
+The certificate is `[(R, a)]` for the four tiers plus the witness for `P`:
+`[(67969, 2), (16538368284, 5), (494959946627345494860, 7), (71694156909245637217911358225110080, 3)]` and `a_P = 2`. `verify_certificate(P, Q, cert)` recomputes every
+step, and `python group_params.py` re-derives the constants from the seed and compares. A reader can check
+primality of `P` and `Q` with a handful of modular exponentiations; no probabilistic test is involved. The subgroup of order
+`Q` is the set of quadratic residues; `_element(x)` accepts exactly integers `0 < x < P` with Jacobi symbol 1.
 
 Generators (`hash_to_subgroup(label)`): for `ctr = 0, 1, ...`, `digest = H256(label || ctr as 4-byte BE || 0 as 2-byte BE) ||
 H256(label || ctr as 4-byte BE || 1 as 2-byte BE)` (512 bits), `x = (int(digest) mod P)^2 mod P`; the first `x` not in
 `{0, 1}` is the result. Labels: `b"zkrp-toy-g"` gives `g`, `b"zkrp-toy-h"` gives `h`:
 
 ```
-g = 0x7abfe9c6b371e3cbaca6bfbda7aa1bd124da5b582296360157d5279f8b532d7b
-h = 0x63267a357b29a209459f4a055f00e168511ad8fff9f12fd9f623a9750d7bf51f
+g = 0x3bc7d5e6f97593d3ac856fc77e707168bbf9231305dfee5082797c8ea8ae77e7
+h = 0x613af5394bcbfbe5559cd7d0b5481741db29d0cfefaa09f70ac73fcb1c052121
 ```
 
 Commitment: `Com(m, r) = g^(m mod Q) * h^(r mod Q) mod P`.
@@ -75,15 +80,15 @@ Commitment: `ComC(n, s) = n*G + s*H`, scalars reduced modulo `Q_C`. `D` is used 
 
 | Parameter | Assurance | Status |
 | --- | --- | --- |
-| `P`, `Q` (repository group) | random-base Miller-Rabin, 40 rounds, run at every import; a composite survives with probability at most `4^-40 = 2^-80`. Conditional step: if `Q` is prime then `P` is prime, by a Pocklington witness (`2` has `2^(P-1) = 1` and `gcd(2^2 - 1, P) = 1`, and `Q^2 > P`), checked in `benchmark.py` | **Probabilistic** for `Q`; `P` follows from `Q` only through that witness |
+| `P`, `Q` (repository group) | Pocklington chain `65537 -> n1 -> n2 -> n3 -> Q`, then `P = 2Q + 1` by a witness for the factor `Q` (`Q^2 > P`); certificate in `group_params.py`, verified on every import | **Proven** (deterministic), assuming nothing beyond arithmetic |
 | `p` (Stark field) | `p - 1 = 2^192 * 5 * 7 * 98714381 * 166848103`; each factor is prime (deterministic Miller-Rabin below 3.3e24); Pocklington witnesses checked in `stark_curve.py` | **Proven** (deterministic) |
 | `Q_C` (curve order) | 12 fixed plus 40 random Miller-Rabin bases | **Probabilistic**; fixed bases give no proven bound at 251 bits |
 
-Note: `Q` prime does not by itself make `P = 2Q + 1` prime. What does is the Pocklington witness above: `Q` is a known prime
-factor of `P - 1 = 2Q` with `Q > sqrt(P)`, and a base `a` with `a^(P-1) = 1` and `gcd(a^2 - 1, P) = 1` completes the proof.
+Note: `Q` prime does not by itself make `P = 2Q + 1` prime. What does is the Pocklington witness for the factor `Q` with
+`Q^2 > P`; the certificate includes it, and the derivation only accepts a `Q` whose `P` passes it.
 
-Open: a primality certificate for `Q` and for `Q_C` (for example ECPP, or deriving `Q` as a provable prime with a Pocklington
-chain and then searching for a candidate whose `P = 2Q + 1` passes the witness test above). Not implemented.
+Open: a primality certificate for `Q_C` (the curve order). `Q_C - 1` would have to be factored far enough to apply the same
+theorem; for now it is checked only by Miller-Rabin.
 
 Assumed: the hash outputs behave like random oracles, so nobody knows `log_g h` (repository group) or `log_G H`
 (curve). The tests can show only subgroup membership and distinctness.
@@ -212,7 +217,7 @@ is rejected by the binding to `Ca` and `Cb` (checked in the self-test).
    assumption on the hashes; not provable).
 2. SHA-256 behaves as a random oracle in all Fiat-Shamir transcripts and in the STARK.
 3. FRI soundness is the conjectured bound (not proven). Zero knowledge of the STARK is argued with random padding and a mask.
-4. The parameter primality of `P`, `Q` and `Q_C` is probabilistic (section 1.3).
+4. The primality of `P`, `Q` and `p` is proven; only the curve order `Q_C` rests on Miller-Rabin (section 1.3).
 5. Range only to 64 bits; the Pocklington profile is fixed at five tiers, so the chain length is public.
 6. Home-made constructions: the in-circuit commitment, the AIR, the link proof and the composition. No independent review.
 7. Not constant-time; pure Python; proofs are about 1.1 MB and take about 22 s to produce.

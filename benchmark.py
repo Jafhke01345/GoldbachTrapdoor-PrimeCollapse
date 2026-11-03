@@ -100,7 +100,7 @@ def soundness_tests():
         ("malleability: response z0 + Q is rejected",           False, lambda: Z.verify(FT.shift_scalar(base, ("rp_a", 3, 4)))),
         ("malleability: response z1 + Q is rejected",           False, lambda: Z.verify(FT.shift_scalar(base, ("rp_x", 0, 5)))),
         ("small subgroup: Ca and Cb negated (every equation balances) is rejected", False, lambda: Z.verify(FT.negated_transcript(1009, 2003))),
-        ("the fixed group equals the published derivation (public seed, first candidate accepted by 40 fixed Miller-Rabin bases)", True, lambda: Z.derive_fixed_group() == (Z.P, Z.Q)),
+        ("the fixed group has a deterministic primality certificate and equals the published derivation", True, lambda: __import__("group_params").verify_certificate(Z.P, Z.Q, __import__("group_params").CERT) and __import__("group_params").derive()[:2] == (Z.P, Z.Q)),
         ("P is prime IF Q is: the fixed witness a = 2 has a^(P-1) = 1 and gcd(a^2 - 1, P) = 1, and Q^2 > P (Pocklington with the known factor Q)", True, lambda: pow(2, Z.P - 1, Z.P) == 1 and __import__("math").gcd(2 * 2 - 1, Z.P) == 1 and Z.Q * Z.Q > Z.P),
         ("the fixed group is a 256-bit safe prime and G, H lie in the order-Q subgroup", True, lambda: Z.P.bit_length() == 256 and Z.P == 2 * Z.Q + 1 and Z._element(Z.G) and Z._element(Z.H) and Z.G != Z.H),
         ("commitment Ca = 0 is rejected, no exception",         False, lambda: tampered(lambda p: p.__setitem__("Ca", 0))),

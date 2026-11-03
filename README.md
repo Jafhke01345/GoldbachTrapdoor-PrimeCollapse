@@ -55,6 +55,7 @@ python sealed_midpoint.py           # sealed midpoint: hash-chain headers, rotat
 python three_coloring_zk.py         # zero-knowledge graph 3-coloring proof
 python zk_threecolor.py             # small-prime proof through 3-coloring (about 25 s)
 python threecolor_link.py           # the same proof linked to a Pedersen commitment (about 80 s)
+python group_params.py              # the repository group: derivation and primality certificate
 python stark_core.py                # STARK engine (field, Merkle, DEEP-FRI) self-test
 python stark_curve.py               # Stark curve and its Pedersen commitment
 python stark_primality.py           # zero-knowledge primality STARK for a hidden n < 2^64 (about 60 s)
@@ -203,7 +204,7 @@ a time the same way. Public by construction: the size profile, so the chain leng
 
 ## Limitations
 
-- 256-bit toy group, fixed and derived from a public seed (`zkrp_toy.derive_fixed_group`), so proofs verify across processes. Real use needs a standard curve such
+- 256-bit toy group, fixed, derived from a public seed and carrying a deterministic Pocklington primality certificate for `P` and `Q` (`group_params.py`), so proofs verify across processes. Real use needs a standard curve such
   as Ristretto255 and a real range-proof system such as Bulletproofs.
 - Default range is 32 bits. The Python reference can widen it with `zkrp_toy.set_range_bits(n)` up to the toy
   group's no-wrap limit (about 250 bits), and `goldbach_relation.py` tests 128-bit primes with multi-tier
