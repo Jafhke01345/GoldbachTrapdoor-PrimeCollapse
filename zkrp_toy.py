@@ -23,7 +23,8 @@ import secrets
 _SMALL_PRIMES = [p for p in range(3, 2000, 2) if all(p % d for d in range(3, int(p ** 0.5) + 1, 2))]
 
 
-def is_probable_prime(n, rounds=40):
+def is_probable_prime(n, rounds=40, bases=None):
+    """Miller-Rabin. `bases=None` uses `rounds` random bases; a tuple of bases makes the test deterministic."""
     if n < 2:
         return False
     if n in (2, 3):
@@ -34,8 +35,7 @@ def is_probable_prime(n, rounds=40):
     while d % 2 == 0:
         d //= 2
         r += 1
-    for _ in range(rounds):
-        a = secrets.randbelow(n - 3) + 2
+    for a in (bases if bases is not None else [secrets.randbelow(n - 3) + 2 for _ in range(rounds)]):
         x = pow(a, d, n)
         if x in (1, n - 1):
             continue
@@ -74,9 +74,13 @@ def hash_to_subgroup(label, p):
 
 
 # ---------------------------------------------------------------- public parameters
+_DERIVE_BASES = tuple(_p for _p in range(2, 180) if all(_p % _d for _d in range(2, _p)))[:40]   # the first 40 primes, 2..173
+
+
 def derive_fixed_group(seed=b"zkrp-toy-group-v1", bits=256):
-    """The recipe behind the fixed group below: the first safe prime p = 2q + 1 found by hashing seed || counter
-    (q = top bits of SHA-256, forced to 256 bits and odd). Anyone can re-run it; `python zkrp_toy.py` is not needed for that,
+    """The recipe behind the fixed group below: the first candidate p = 2q + 1 accepted by Miller-Rabin with the 40 fixed
+    bases 2..173, hashing seed || counter (q = top bits of SHA-256, forced to 256 bits and odd). Deterministic, but a
+    probable-prime procedure, not a primality proof. Anyone can re-run it; `python zkrp_toy.py` is not needed for that,
     benchmark.py checks the constants against it."""
     ctr = 0
     while True:
@@ -86,7 +90,7 @@ def derive_fixed_group(seed=b"zkrp-toy-group-v1", bits=256):
         p = 2 * q + 1
         if any(q % s == 0 or p % s == 0 for s in _SMALL_PRIMES):
             continue
-        if is_probable_prime(q) and is_probable_prime(p):
+        if is_probable_prime(q, bases=_DERIVE_BASES) and is_probable_prime(p, bases=_DERIVE_BASES):
             return p, q
 
 

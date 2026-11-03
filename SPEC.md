@@ -32,9 +32,14 @@ Derivation (`derive_fixed_group`, seed `b"zkrp-toy-group-v1"`): for `ctr = 0, 1,
 1. `d = H256(seed || ctr as 8-byte big-endian)`.
 2. `q = (int(d) >> 1) | 2^254 | 1` (a 255-bit odd number), `p = 2q + 1`.
 3. Skip if `q` or `p` is divisible by an odd prime below 2000.
-4. Accept the first `ctr` for which both `q` and `p` pass Miller-Rabin with 40 uniformly random bases.
+4. Accept the first `ctr` for which both `q` and `p` pass Miller-Rabin with the 40 FIXED bases 2, 3, 5, ..., 173 (the first
+   40 primes). The acceptance test is deterministic, so the seed determines the result.
 
-The result is returned after `ctr = 25902` (25903 candidates tried). `benchmark.py` re-derives it and compares.
+The accepted counter is `ctr = 25902`. `benchmark.py` re-derives the constants and compares. Precisely what this establishes:
+the constants are the first candidate accepted by that specified procedure. It does not establish that the accepted number is
+prime (a composite could in principle pass 40 fixed bases) nor, independently, that every earlier candidate is composite;
+the earlier ones were rejected by the same test. See section 1.3 for the assurance that `P` and `Q` are prime.
+The import-time check in `zkrp_toy.py` is a separate test with 40 random bases.
 The subgroup of order `Q` is the set of quadratic residues; `_element(x)` accepts exactly integers `0 < x < P` with Jacobi symbol 1.
 
 Generators (`hash_to_subgroup(label)`): for `ctr = 0, 1, ...`, `digest = H256(label || ctr as 4-byte BE || 0 as 2-byte BE) ||
@@ -52,7 +57,8 @@ Commitment: `Com(m, r) = g^(m mod Q) * h^(r mod Q) mod P`.
 
 Field `F_p`, `p = 2^251 + 17 * 2^192 + 1`. Curve `y^2 = x^3 + x + beta`, `beta` as in `stark_curve.py`, group order `Q_C`
 (prime, about `2^251`), generator `G`. These constants appear to be the published Stark curve; a reviewer should compare
-them with StarkWare's own specification, which I have not done from inside this environment.
+them with StarkWare's own specification. An external reviewer reported a match with independent implementations of the published
+Stark curve (field prime, `alpha = 1`, `beta`, order, generator); the canonical StarkWare source is still to be cited here.
 
 `H` and `D` come from `hash_to_point(label)`: for `ctr = 0, 1, ...`, `x = int(H256(b"stark_curve|" || label || b"|" ||
 ASCII decimal of ctr)) mod p`; if `x^3 + x + beta` has a square root, return `(x, y)` with `y` the even root (Tonelli-Shanks
@@ -69,12 +75,15 @@ Commitment: `ComC(n, s) = n*G + s*H`, scalars reduced modulo `Q_C`. `D` is used 
 
 | Parameter | Assurance | Status |
 | --- | --- | --- |
-| `P`, `Q` (repository group) | random-base Miller-Rabin, 40 rounds, run at every import; composite survives with probability at most `4^-40 = 2^-80` | **Probabilistic**, no certificate |
+| `P`, `Q` (repository group) | random-base Miller-Rabin, 40 rounds, run at every import; a composite survives with probability at most `4^-40 = 2^-80`. Conditional step: if `Q` is prime then `P` is prime, by a Pocklington witness (`2` has `2^(P-1) = 1` and `gcd(2^2 - 1, P) = 1`, and `4Q^2 > P`), checked in `benchmark.py` | **Probabilistic** for `Q`; `P` follows from `Q` only through that witness |
 | `p` (Stark field) | `p - 1 = 2^192 * 5 * 7 * 98714381 * 166848103`; each factor is prime (deterministic Miller-Rabin below 3.3e24); Pocklington witnesses checked in `stark_curve.py` | **Proven** (deterministic) |
 | `Q_C` (curve order) | 12 fixed plus 40 random Miller-Rabin bases | **Probabilistic**; fixed bases give no proven bound at 251 bits |
 
-Open: a primality certificate for `P`, `Q` and `Q_C` (for example ECPP, or constructing `Q` as a provable prime with a
-Pocklington chain and then `P = 2Q + 1`, which is proven in one step from `Q`). Not implemented.
+Note: `Q` prime does not by itself make `P = 2Q + 1` prime. What does is the Pocklington witness above: `Q` is a known prime
+factor of `P - 1 = 2Q` with `Q > sqrt(P)`, and a base `a` with `a^(P-1) = 1` and `gcd(a^2 - 1, P) = 1` completes the proof.
+
+Open: a primality certificate for `Q` and for `Q_C` (for example ECPP, or deriving `Q` as a provable prime with a Pocklington
+chain and then searching for a candidate whose `P = 2Q + 1` passes the witness test above). Not implemented.
 
 Assumed: the hash outputs behave like random oracles, so nobody knows `log_g h` (repository group) or `log_G H`
 (curve). The tests can show only subgroup membership and distinctness.
@@ -164,7 +173,7 @@ Verifier accepts iff `Ca` is a subgroup element, `C` is a finite curve point, th
 
 Response bound for every permitted input: `z = k + e*a <= (2^240 - 1) + (2^128 - 1)(2^64 - 1) < 2^240 + 2^192 < 2^241`.
 
-Extraction (**Argued**, special soundness): take two accepting transcripts with equal `(T1, T2)` and challenges `e != e'`, and let
+Extraction (**Argued**, interactive special soundness; the Fiat-Shamir transformation is a separate argument, see the last paragraph of this section): take two accepting transcripts with equal `(T1, T2)` and challenges `e != e'`, and let
 `D = z - z'` and `Delta = e - e'`, so `0 < |Delta| < 2^128` and `|D| < 2^241`. Dividing the first equation by itself gives
 `Ca^Delta = g^D h^(w1-w1')`, hence `Ca = g^(D/Delta) h^((w1-w1')/Delta)` with exponents taken modulo `Q` (`Delta` is invertible
 because `|Delta| < 2^128 < Q`). The second equation gives, in the same way, `C = (D/Delta mod Q_C) G + (...) H`. Under the
