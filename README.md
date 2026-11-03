@@ -201,13 +201,13 @@ a time the same way. Public by construction: the size profile, so the chain leng
 
 ## Limitations
 
-- 256-bit toy group, regenerated at every import of `zkrp_toy.py`. Real use needs a standard curve such
+- 256-bit toy group, fixed and derived from a public seed (`zkrp_toy.derive_fixed_group`), so proofs verify across processes. Real use needs a standard curve such
   as Ristretto255 and a real range-proof system such as Bulletproofs.
 - Default range is 32 bits. The Python reference can widen it with `zkrp_toy.set_range_bits(n)` up to the toy
   group's no-wrap limit (about 250 bits), and `goldbach_relation.py` tests 128-bit primes with multi-tier
   certificates that way. The C module takes the width as a build option (`-DNB=128`; default 32). Endpoints beyond the
   group size need limb-wise vector commitments.
-- The primality STARK covers numbers below 2^64 only and its curve commitment, ladder and cross-group link are home-made; 1024-bit primes are not implemented (see `PRIMALITY.md`). Proofs from `goldbach_stark.py` verify only in the process that made them while `zkrp_toy.py` regenerates its group. Zero knowledge is argued, not proven, and no independent review has happened. No audit.
+- The primality STARK covers numbers below 2^64 only and its curve commitment, ladder and cross-group link are home-made; 1024-bit primes are not implemented (see `PRIMALITY.md`). Zero knowledge is argued, not proven, and no independent review has happened. No audit.
 - Not constant-time.
 
 ## History

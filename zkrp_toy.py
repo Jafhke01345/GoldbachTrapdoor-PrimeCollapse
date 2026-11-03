@@ -13,7 +13,8 @@ Building blocks
 
 NOT included: any proof that a and b are prime (see PRIMALITY.md).
 NOT production crypto: 256-bit toy group, O(N) proof size, not constant-time, unaudited.
-The group parameters are regenerated on every import (fine for a toy, not for deployment).
+The group is a FIXED 256-bit safe prime derived from a public seed (see derive_fixed_group), so proofs verify across
+processes. It is still a toy group: not a standard curve, not for deployment.
 """
 import hashlib
 import secrets
@@ -73,7 +74,27 @@ def hash_to_subgroup(label, p):
 
 
 # ---------------------------------------------------------------- public parameters
-P, Q = gen_safe_prime(256)
+def derive_fixed_group(seed=b"zkrp-toy-group-v1", bits=256):
+    """The recipe behind the fixed group below: the first safe prime p = 2q + 1 found by hashing seed || counter
+    (q = top bits of SHA-256, forced to 256 bits and odd). Anyone can re-run it; `python zkrp_toy.py` is not needed for that,
+    benchmark.py checks the constants against it."""
+    ctr = 0
+    while True:
+        d = hashlib.sha256(seed + ctr.to_bytes(8, "big")).digest()
+        q = (int.from_bytes(d, "big") >> (256 - (bits - 1))) | (1 << (bits - 2)) | 1
+        ctr += 1
+        p = 2 * q + 1
+        if any(q % s == 0 or p % s == 0 for s in _SMALL_PRIMES):
+            continue
+        if is_probable_prime(q) and is_probable_prime(p):
+            return p, q
+
+
+# A FIXED toy group, so a proof made in one process verifies in another. It is derived from a public seed (not chosen by
+# the prover) and re-checked for primality on every import.
+P = 0xa2e58466d9980ae87d1f7a606efde752dce974ecfbfedbe32712554c931e894b
+Q = 0x5172c2336ccc05743e8fbd30377ef3a96e74ba767dff6df193892aa6498f44a5
+assert P == 2 * Q + 1 and is_probable_prime(Q) and is_probable_prime(P), "group parameters are not a safe prime"
 G = hash_to_subgroup(b"zkrp-toy-g", P)
 H = hash_to_subgroup(b"zkrp-toy-h", P)
 G_INV = pow(G, -1, P)

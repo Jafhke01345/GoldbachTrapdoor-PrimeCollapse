@@ -14,8 +14,7 @@ Four pieces, each already tested on its own, composed here:
 What the verifier learns: c, hence a + b; the size profile of each endpoint's certificate chain (public by
 construction, see stark_primality.py). Not a, not b, not the factorisation chain, not any blinding value.
 
-Limits: toy groups (the repository group is regenerated on every import of zkrp_toy.py, so a proof only verifies in the
-process that made it unless the group is fixed), the primality part covers numbers with a five-tier Pocklington chain
+Limits: toy groups (fixed, derived from a public seed, so proofs verify across processes), the primality part covers numbers with a five-tier Pocklington chain
 (the 64-bit profile, not every prime), the STARK's zero knowledge is argued not proven, unaudited, slow (about 25 s to
 prove, under a second to verify, around 1.2 MB).
 
@@ -119,6 +118,14 @@ def _selftest():
     check("honest proof accepted", ok)
     print(f"    prove {t_prove:.1f} s, verify {t_ver:.2f} s, size about {size_bytes(pub) / 1024:.0f} KiB")
     check("the verifier is given c and it is the midpoint", pub["mid"]["c"] == c)
+    import os, pickle, subprocess, tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "proof.pkl")
+        with open(path, "wb") as fh:
+            pickle.dump(pub, fh)
+        code = "import pickle,sys,goldbach_stark as g; sys.exit(0 if g.verify(pickle.load(open(sys.argv[1],'rb'))) else 1)"
+        r = subprocess.run([sys.executable, "-c", code, path], cwd=os.path.dirname(os.path.abspath(__file__)))
+    check("the proof verifies in a FRESH process (the group is fixed)", r.returncode == 0)
     blob = repr(pub).encode()
     check("neither a nor b appears anywhere in the proof (c = (a + b) / 2 is public by design)",
           str(a).encode() not in blob and str(b).encode() not in blob)
