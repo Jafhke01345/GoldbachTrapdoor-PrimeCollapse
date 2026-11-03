@@ -120,6 +120,35 @@ def commit(params: Params, m: int, r: int) -> int:
     return pow(G, m % Q, P) * pow(H, r % Q, P) % P
 
 
+_PRIME_CACHE = {}
+
+
+def _probably_prime(n: int, rounds: int = 40) -> bool:
+    """Miller-Rabin with RANDOM bases (a hostile party cannot pre-compute a composite that fools them), error
+    below 4^-40 per call. Used only to vet group parameters; the result is cached per number."""
+    if n in _PRIME_CACHE:
+        return _PRIME_CACHE[n]
+    ok = n > 3 and n % 2 == 1
+    if ok:
+        d, s = n - 1, 0
+        while d % 2 == 0:
+            d //= 2
+            s += 1
+        for _ in range(rounds):
+            x = pow(2 + secrets.randbelow(n - 3), d, n)
+            if x in (1, n - 1):
+                continue
+            for _ in range(s - 1):
+                x = x * x % n
+                if x == n - 1:
+                    break
+            else:
+                ok = False
+                break
+    _PRIME_CACHE[n] = ok
+    return ok
+
+
 def _params_ok(params) -> bool:
     try:
         P, Q, G, H = params
@@ -128,6 +157,8 @@ def _params_ok(params) -> bool:
     if any(type(v) is not int for v in (P, Q, G, H)):
         return False
     if P != 2 * Q + 1 or Q < 5 or not (1 < G < P) or not (1 < H < P) or G == H:
+        return False
+    if not (_probably_prime(Q) and _probably_prime(P)):  # a composite "group" would not bind the committed value
         return False
     return pow(G, Q, P) == 1 and pow(H, Q, P) == 1       # both generators lie in the order-Q subgroup
 
@@ -306,6 +337,11 @@ def _selftest() -> int:
 
     print("\n2) commitment / identity-linkage attacks")
     steps, n, r, C = fresh(128)
+    # parameters that satisfy every algebraic relation but are not prime: P = 21 = 2*10 + 1, G = 8 and H = 13 both
+    # have order 2 and lie in "the subgroup of order Q"; only a primality check on P and Q rejects them
+    bad_params = (21, 10, 8, 13)
+    expect("composite group parameters (21, 10, 8, 13) are rejected", verify([], commit(bad_params, 3, 1), 3, 1, bad_params), False)
+    expect("the real parameters pass the same check", _params_ok(params), True)
     expect("wrong opening randomness r", verify(steps, C, n, (r + 1) % Q, params), False)
     expect("commitment to a different value", verify(steps, commit(params, n + 2, r), n, r, params), False)
     expect("claimed n differs from committed n", verify(steps, C, n + 2, r, params), False)

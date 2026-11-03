@@ -21,7 +21,9 @@ It is a toy: 256-bit group, unaudited, not constant-time, not for production use
 | Zero-knowledge proof that a graph is 3-colorable (hex SHA-256 commitments, Fiat-Shamir) | `three_coloring_zk.py` | Implemented, adversarial self-test; standalone, does not strengthen the other components |
 | Zero-knowledge proof that a hidden number below 8 is prime, via a graph built from the formula "x is prime" and the 3-coloring proof | `zk_threecolor.py` | Implemented as a demo of the mechanism; tiny numbers only, uses SHA-256 colour commitments and is not linked to the Pedersen commitments |
 | The same prime proof linked to a Pedersen commitment `Ca`: colours are Pedersen commitments and a shared-response Schnorr proof ties each bit of `Ca` to the colour of its variable node | `threecolor_link.py` | Implemented, adversarial self-test with removal checks; 3-bit numbers only, about 900 rounds, slow, toy group |
-| Zero-knowledge proof that a hidden number below 2^64 is prime (hash-based STARK over a Pocklington chain, committed with a MiMC-style hash) | `stark_core.py`, `stark_primality.py`, design in `PRIMALITY.md` | Implemented, adversarial self-test with a forged trace for every constraint; about 10 s to prove, 0.1 s to verify, about 420 KiB; not linked to the Pedersen commitments, size profile is public |
+| Zero-knowledge proof that a hidden number below 2^64 is prime (hash-based STARK over a Pocklington chain; the number sits in a Pedersen commitment `n*G + s*H` on the Stark curve, computed inside the circuit) | `stark_core.py`, `stark_curve.py`, `stark_primality.py`, design in `PRIMALITY.md` | Implemented, adversarial self-test with a forged trace for every constraint; about 11 s to prove, 0.1 s to verify, about 554 KiB; size profile is public, zero knowledge argued not proven |
+| Proof that the Stark-curve commitment and the repository's `Ca` hide the same integer (cross-group sigma protocol with one integer response) | `link_commitments.py` | Implemented, adversarial self-test with removal checks (two redundant checks documented) |
+| The whole statement in zero knowledge: `a + b = 2c`, `0 <= a <= c <= b`, both `a` and `b` prime and hidden | `goldbach_stark.py` | Implemented end to end; about 22 s to prove, 0.35 s to verify, about 1.1 MB; toy groups, unaudited |
 | Zero-knowledge proof for full-size (1024-bit) primes | `PRIMALITY.md` | Not implemented |
 | Repository guard (structure, API, README checks) | `check_repo.py` | Implemented, run by CI |
 
@@ -54,7 +56,10 @@ python three_coloring_zk.py         # zero-knowledge graph 3-coloring proof
 python zk_threecolor.py             # small-prime proof through 3-coloring (about 25 s)
 python threecolor_link.py           # the same proof linked to a Pedersen commitment (about 80 s)
 python stark_core.py                # STARK engine (field, Merkle, DEEP-FRI) self-test
-python stark_primality.py           # zero-knowledge primality STARK for a hidden n < 2^64 (about 40 s)
+python stark_curve.py               # Stark curve and its Pedersen commitment
+python stark_primality.py           # zero-knowledge primality STARK for a hidden n < 2^64 (about 60 s)
+python link_commitments.py          # proof that two commitments in two groups hide the same integer
+python goldbach_stark.py            # the whole statement end to end (a few minutes)
 python check_repo.py                # repository guard
 
 # native module (needs GCC or Clang; uses unsigned __int128, so not MSVC)
@@ -169,18 +174,25 @@ neither opened nor part of a bit link (any attempt to open such a node fails any
 ## Zero-knowledge primality (STARK)
 
 `PRIMALITY.md` describes why a Pocklington chain suits a circuit. `stark_primality.py` now implements it with
-`stark_core.py`, a small hash-based STARK (AIR, DEEP composition, FRI over SHA-256 Merkle trees, 180-bit field).
+`stark_core.py`, a small hash-based STARK (AIR, DEEP composition, FRI over SHA-256 Merkle trees, 252-bit field).
 There is no trusted setup, no pairing and no group: only hashing and field arithmetic. The prover shows that a
 committed `n < 2^64` is prime without revealing `n`, the chain `q_i`, `R_i`, the bases, the Bezout witnesses or
 the salt. The circuit checks for every tier `n = 2qR + 1`, `1 <= R <= 2q - 1`, `a^((n-1)/2)` and
 `a'^((n-1)/q)` with the Fermat and Bezout conditions, and that each `q` is the next tier's `n`, ending at 3.
 Exponents are square-and-multiply ladders whose bits are witness columns.
 
-The public value is `cm = MiMC(n, salt)`, an algebraic hash chosen because a SHA-256 commitment would be far
-too large inside the circuit. It is a home-made use of a published permutation shape, unreviewed, and it is
-not linked to the Pedersen commitment `Ca` of the rest of the repository (different field and group).
+The public value is a Pedersen commitment `C = n*G + s*H` on the Stark curve (`stark_curve.py`), whose
+coordinates live in the STARK's own field, so the circuit computes it with a double-and-add ladder and the
+chain's top `n` is tied to the committed scalar. The repository's `Ca` lives in another group, so
+`link_commitments.py` proves that `Ca` and `C` hide the same integer: a sigma protocol with one integer response
+below 2^241, which is smaller than half of both group orders, so nothing wraps. `goldbach_stark.py` composes the
+midpoint proof, the range proofs, the two links and the two primality STARKs into one verifier. The curve,
+the ladder and the link are home-made, unreviewed constructions.
 
-Removal checks: for each of the circuit's 41 constraints the self-test builds a forged trace that breaks only
+This project does not prove the Goldbach conjecture; the name is historical. It proves a statement about
+two hidden primes that average to a public `c`.
+
+Removal checks: for each of the circuit's 183 constraints (57 single-family forgeries) the self-test builds a forged trace that breaks only
 that constraint (a wrong exponent, a non-boolean bit, a forged commitment, a skipped factorisation and so on)
 and asserts exactly that one is violated, so deleting any constraint makes the test fail. The verifier's
 checks (Merkle paths, FRI links, final polynomial, out-of-domain consistency, DEEP terms) were removed one at
@@ -195,7 +207,7 @@ a time the same way. Public by construction: the size profile, so the chain leng
   group's no-wrap limit (about 250 bits), and `goldbach_relation.py` tests 128-bit primes with multi-tier
   certificates that way. The C module takes the width as a build option (`-DNB=128`; default 32). Endpoints beyond the
   group size need limb-wise vector commitments.
-- The primality STARK covers numbers below 2^64 only, uses a home-made commitment and is not linked to the Pedersen commitments; 1024-bit primes are not implemented (see `PRIMALITY.md`). No audit.
+- The primality STARK covers numbers below 2^64 only and its curve commitment, ladder and cross-group link are home-made; 1024-bit primes are not implemented (see `PRIMALITY.md`). Proofs from `goldbach_stark.py` verify only in the process that made them while `zkrp_toy.py` regenerates its group. Zero knowledge is argued, not proven, and no independent review has happened. No audit.
 - Not constant-time.
 
 ## History

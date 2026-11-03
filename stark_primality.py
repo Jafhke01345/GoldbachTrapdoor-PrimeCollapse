@@ -1,26 +1,30 @@
 """
-stark_primality.py - a STARK (hash-based, see stark_core.py) that a COMMITTED number n below 2^64 is prime,
-via a recursive Pocklington certificate that stays hidden. Nothing is opened: not n, not q, R, the bases or the
-Bezout witnesses, and not the salt.
+stark_primality.py - a STARK (hash-based, see stark_core.py) that a COMMITTED number n below 2^64 is prime, via a
+recursive Pocklington certificate that stays hidden. Nothing is opened: not n, not q, R, the bases or the Bezout
+witnesses, and not the blinding scalar.
 
-    Public    : cm  = commit(n, salt)   (a MiMC-style algebraic commitment, see below)
+    Public    : C = n*G + s*H, a Pedersen commitment on the Stark elliptic curve (see stark_curve.py)
                 the size profile (bit bounds of n_0 > n_1 > ... , default (64, 33, 17, 9, 5)) and the terminal prime 3
-    Witness   : n = n_0, salt, and for each tier i: n_i = 2 q_i R_i + 1, q_i = n_{i+1} (q of the last tier is 3),
-                bases a2_i, aq_i and Bezout witnesses w2_i, wq_i
+    Witness   : n = n_0, the scalar s, and for each tier i: n_i = 2 q_i R_i + 1, q_i = n_{i+1} (q of the last tier is
+                3), bases a2_i, aq_i and Bezout witnesses w2_i, wq_i
     The AIR enforces, for every tier (all arithmetic is modular multiplication gadgets with 64-bit range checks):
         n = 2 q R + 1 over the integers and q*R computed exactly; 1 <= R <= 2q - 1 (so 4 q^2 > n);
         y2 = a2^((n-1)/2) with y2^2 = 1 (mod n) and (y2 - 1) w2 = 1 (mod n);
         yq = aq^((n-1)/q) with yq^q = 1 (mod n) and (yq - 1) wq = 1 (mod n);
-        n_{i+1} = q_i, the chain ends at q = 3, and cm = commit(n_0, salt).
+        n_{i+1} = q_i, the chain ends at q = 3, and C = n_0*G + s*H.
     By Pocklington's theorem each n_i is then prime, hence n_0 is.
 
 Exponents are hidden: every exponentiation is a square-and-multiply ladder whose bits are witness columns,
 accumulated into a register that is compared with the hidden number it must equal.
 
-THE COMMITMENT: cm = S_R + salt + n where S_{r+1} = (S_r + salt + k_r)^3 (MiMC, 114 rounds, S_0 = n) in the same
-180-bit field. It is a home-made use of a published permutation shape: unreviewed, roughly 90-bit collision
-resistance, and it is NOT linked to the Pedersen commitment of the rest of the repository (a different group
-and field). Linking the two would need the discrete-log group inside this circuit or a shared commitment.
+THE COMMITMENT IS INSIDE THE CIRCUIT. The curve's coordinates are elements of the STARK field, so a point addition is
+native field arithmetic. 252 rows run a double-and-add: each row doubles the accumulator, adds G when the bit of n is
+set (only in the last 64 rows, so n cannot wrap), adds H when the bit of s is set. The accumulator starts at a hashed
+point D, which keeps the "point at infinity" corner cases out of the formulas, and each addition proves its two
+x-coordinates differ with a witness inverse, so a degenerate step cannot be forged. The final point must equal the
+public C + 2^252 D, and the register that collected the bits of n must equal the n at the top of the chain.
+This replaces an earlier home-made MiMC hash: the commitment is now binding under the elliptic-curve discrete log and
+can be tied to the Pedersen commitment of the rest of the repository by a small sigma protocol (link_commitments.py).
 
 LEAKS (public by construction): the size profile, i.e. the length of the chain. WHAT THIS IS NOT: audited,
 constant-time, a proof of zero knowledge (see stark_core.py: argued, not proven).
@@ -34,32 +38,37 @@ import sys
 import time
 
 import stark_core as S
+import stark_curve as SC
 
 P = S.P
+assert SC.P == P, "the curve's base field must be the STARK field"
 PROFILE = (64, 33, 17, 9, 5)
-MIMC_ROUNDS = 114
+EC_BITS = 252                                            # scalar width of the in-circuit double-and-add
+EC_G_BITS = 64                                           # only the last 64 rows may add G (n < 2^64, no wrap)
+ECEND = EC_BITS                                          # index of the row that holds the final point
 WB = 64                                                  # range-check width
-COLS = ["A", "B", "Q", "V", "G", "EB", "EA", "N", "QR", "RR", "MM", "S", "U", "KEY", "MSG", "CM"]
+COLS = ["A", "B", "Q", "V", "G", "EB", "EA", "N", "QR", "RR", "MM",
+        "AX", "AY", "L1", "TX", "TY", "L2", "I2", "WX", "WY", "VX", "VY", "L3", "I3", "XX", "XY", "BN", "BS", "EN"]
 IDX = {c: i for i, c in enumerate(COLS)}
 BQ0 = len(COLS)
 BV0 = BQ0 + WB
 WIDTH = BV0 + WB
-KC = [int.from_bytes(hashlib.sha256(b"stark_primality|mimc|%d" % r).digest(), "big") % P for r in range(MIMC_ROUNDS)]
 PUBN = ["s_mm", "s_bez", "s_sqf", "s_mul", "s_ferm", "s_rG", "s_rT", "s_rR", "s_start", "t_sq2mul", "t_mul2x",
         "t_mul2bez", "t_tm", "t_ferm2bez", "t_bez2e3", "t_holdG", "t_reg", "t_tier", "s_rel", "s_chk_m", "s_chk_2r",
-        "s_chk_q", "s_mimc", "kc", "s_mstart", "s_mend", "t_mimcH", "t_commit"]
+        "s_chk_q", "s_ec", "s_ecG", "s_ecst", "t_ecn"]
 
 
 # ============================================================================ commitment
-def commit(n, salt):
-    s = n % P
-    for r in range(MIMC_ROUNDS):
-        t = (s + salt + KC[r]) % P
-        s = t * t % P * t % P
-    return (s + salt + n) % P
+def commit(n, scalar):
+    """The public commitment: the point n*G + scalar*H on the Stark curve."""
+    return SC.commit(n, scalar)
 
 
-# ============================================================================ layout
+def end_point(C):
+    """The point the accumulator must hold on the last row: C + 2^252 * D (D is the in-circuit start point)."""
+    return SC.add(C, SC.mul(pow(2, EC_BITS, SC.Q), SC.D))
+
+
 def tier_bits(profile, i):
     """(bits of (n-1)/2, bits of 2R, bits of q) for tier i."""
     Bn = profile[i]
@@ -69,8 +78,9 @@ def tier_bits(profile, i):
 
 def layout(profile=PROFILE):
     d = []
-    for r in range(MIMC_ROUNDS + 1):
-        d.append({"k": "mimc", "r": r, "tier": None})
+    for r in range(EC_BITS):
+        d.append({"k": "ec", "r": r, "tier": None})
+    d.append({"k": "ecend", "tier": None})
     first_rows = []
 
     def block(blk, L, tier):
@@ -137,22 +147,20 @@ def pub_table(desc, profile, N):
             cols["s_chk_2r"][r] = 1
         if k == "rngG" or k == "sq" or (k == "mul" and not d["lastmul"]):
             cols["t_holdG"][r] = 1
-        if k not in ("mimc", "end") and not d.get("last"):
+        if k not in ("ec", "ecend", "end") and not d.get("last"):
             cols["t_reg"][r] = 1
         if d.get("last") and d["tier"] < T - 1:
             cols["t_tier"][r] = 1
         if d.get("first"):
             cols["s_rel"][r] = 1
-        if k == "mimc":
-            if d["r"] < MIMC_ROUNDS:
-                cols["s_mimc"][r] = 1
-                cols["kc"][r] = KC[d["r"]]
-                cols["t_mimcH"][r] = 1
+        if k == "ec":
+            cols["s_ec"][r] = 1
+            if d["r"] >= EC_BITS - EC_G_BITS:
+                cols["s_ecG"][r] = 1
             if d["r"] == 0:
-                cols["s_mstart"][r] = 1
-            if d["r"] == MIMC_ROUNDS:
-                cols["s_mend"][r] = 1
-                cols["t_commit"][r] = 1
+                cols["s_ecst"][r] = 1
+        if k == "ecend":
+            cols["t_ecn"][r] = 1
     return cols
 
 
@@ -162,9 +170,9 @@ _NAMES = []
 
 def _constraints(c, n, p, names=None):
     (s_mm, s_bez, s_sqf, s_mul, s_ferm, s_rG, s_rT, s_rR, s_start, t_sq2mul, t_mul2x, t_mul2bez, t_tm, t_ferm2bez,
-     t_bez2e3, t_holdG, t_reg, t_tier, s_rel, s_chk_m, s_chk_2r, s_chk_q, s_mimc, kc, s_mstart, s_mend, t_mimcH,
-     t_commit) = p
-    A, B, Q, V, G, EB, EA, N, QR, RR, MM, S_, U, KEY, MSG, CM = c[:16]
+     t_bez2e3, t_holdG, t_reg, t_tier, s_rel, s_chk_m, s_chk_2r, s_chk_q, s_ec, s_ecG, s_ecst, t_ecn) = p
+    (A, B, Q, V, G, EB, EA, N, QR, RR, MM, AX, AY, L1, TX, TY, L2, I2, WX, WY, VX, VY, L3, I3, XX, XY, BN, BS,
+     EN) = c[:BQ0]
     out = []
 
     def add(name, val):
@@ -212,14 +220,31 @@ def _constraints(c, n, p, names=None):
     add("exp_is_m", s_chk_m * (EA - MM))
     add("exp_is_2R", s_chk_2r * (EA - 2 * RR))
     add("exp_is_q", s_chk_q * (EA - QR))
-    T = S_ + KEY + kc
-    add("mimc_square", s_mimc * (U - T * T))
-    add("mimc_cube", s_mimc * (n[11] - U * T))
-    add("mimc_start", s_mstart * (S_ - MSG))
-    add("mimc_end", s_mend * (CM - S_ - KEY - MSG))
-    add("hold_KEY", t_mimcH * (n[13] - KEY))
-    add("hold_MSG", t_mimcH * (n[14] - MSG))
-    add("commit_to_n", t_commit * (n[7] - MSG))
+    # ---- the commitment C = n*G + s*H, one double-and-add step per row (see the docstring)
+    Gx, Gy, Hx, Hy = SC.GX, SC.GY, SC.H[0], SC.H[1]
+    add("ec_dbl_lam", s_ec * (L1 * 2 * AY - 3 * AX * AX - SC.ALPHA))
+    add("ec_dbl_x", s_ec * (TX - (L1 * L1 - 2 * AX)))
+    add("ec_dbl_y", s_ec * (TY - (L1 * (AX - TX) - AY)))
+    add("ec_G_lam", s_ec * (L2 * (Gx - TX) - (Gy - TY)))
+    add("ec_G_inv", s_ec * (I2 * (Gx - TX) - 1))
+    add("ec_G_x", s_ec * (WX - (L2 * L2 - TX - Gx)))
+    add("ec_G_y", s_ec * (WY - (L2 * (TX - WX) - TY)))
+    add("ec_G_selx", s_ec * (VX - (TX + BN * (WX - TX))))
+    add("ec_G_sely", s_ec * (VY - (TY + BN * (WY - TY))))
+    add("ec_bnG_zero", s_ec * (1 - s_ecG) * BN)
+    add("ec_bn_bool", s_ec * BN * (BN - 1))
+    add("ec_H_lam", s_ec * (L3 * (Hx - VX) - (Hy - VY)))
+    add("ec_H_inv", s_ec * (I3 * (Hx - VX) - 1))
+    add("ec_H_x", s_ec * (XX - (L3 * L3 - VX - Hx)))
+    add("ec_H_y", s_ec * (XY - (L3 * (VX - XX) - VY)))
+    add("ec_H_selx", s_ec * (n[IDX["AX"]] - (VX + BS * (XX - VX))))
+    add("ec_H_sely", s_ec * (n[IDX["AY"]] - (VY + BS * (XY - VY))))
+    add("ec_bs_bool", s_ec * BS * (BS - 1))
+    add("ec_En", s_ec * (n[IDX["EN"]] - 2 * EN - BN))
+    add("ec_start_En", s_ecst * EN)
+    add("ec_start_ax", s_ecst * (AX - SC.D[0]))
+    add("ec_start_ay", s_ecst * (AY - SC.D[1]))
+    add("ec_link_n", t_ecn * (n[IDX["N"]] - EN))
     return out
 
 
@@ -227,9 +252,9 @@ class PrimeAIR(S.AIR):
     width = WIDTH
     degree = 3
 
-    def __init__(self, cm, profile=PROFILE):
+    def __init__(self, C, profile=PROFILE):
         self.profile = tuple(profile)
-        self.cm = cm
+        self.C = C
         self.desc, self.first_rows = layout(self.profile)
         self.n_real = len(self.desc)
         names = []
@@ -237,7 +262,10 @@ class PrimeAIR(S.AIR):
         _constraints(z, z, [0] * len(PUBN), names)
         self.names = names
         self.n_constraints = len(names)
-        self.boundary = [(IDX["CM"], MIMC_ROUNDS, cm), (IDX["QR"], self.first_rows[-1], 3)]
+        e = end_point(C) if C is not None else (0, 0)
+        if e is None:
+            raise ValueError("degenerate commitment")
+        self.boundary = [(IDX["AX"], ECEND, e[0]), (IDX["AY"], ECEND, e[1]), (IDX["QR"], self.first_rows[-1], 3)]
         self._pub = {}
 
     def pub_columns(self, N):
@@ -250,7 +278,7 @@ class PrimeAIR(S.AIR):
         return _constraints(cur, nxt, pub)
 
     def extra(self):
-        return b"stark_primality|v1|" + repr(self.profile).encode()
+        return b"stark_primality|v2|" + repr((self.profile, SC.G, SC.H, SC.D)).encode()
 
 
 # ============================================================================ witness
@@ -310,37 +338,60 @@ def find_bases(n, q):
     return a2, aq
 
 
-def build_rows(chain, salt, profile=PROFILE, cheat=None):
+def build_rows(chain, scalar, profile=PROFILE, cheat=None):
     """Execution trace of the honest prover. `cheat` is a TEST HOOK: a dict that makes the builder emit a forged trace
     that is internally consistent except for ONE family of constraints (see _single_family_cheats in the self-test).
     Keys: tier; exp {blk: exponent}; ea0 {blk: start of the exponent register}; x0 {blk: start cell};
     jump_hold / jump_sqmul {blk: (step, jump)}; ebj {blk: {step: j}} (non-boolean bit EB = bit + j n);
-    shift3 (1: base of block 3 is yq + n, 2: also the Bezout cell); R_mult, mm_follows; mimc {key0, s0, msg, cm,
-    u_tamper, cube_tamper}."""
+    shift3 (1: base of block 3 is yq + n, 2: also the Bezout cell); R_mult, mm_follows;
+    ec {n_val (integer used as the G-scalar), start (accumulator start point), en0, bn_vals {row: value},
+        bs_vals {row: value}, tamper {(row, cell name): delta}, en_jump (row, delta)}."""
     ch = cheat or {}
     desc, _ = layout(profile)
     rows = [[0] * WIDTH for _ in desc]
     ri = 0
     n0 = chain[0]["n"]
-    mc = ch.get("mimc", {})
-    msg = mc.get("msg", n0)
-    s = mc.get("s0", msg) % P
-    for r in range(MIMC_ROUNDS + 1):
+    ec = ch.get("ec", {})
+    tam = ec.get("tamper", {})
+    nval = ec.get("n_val", n0)
+    bn_vals, bs_vals = ec.get("bn_vals", {}), ec.get("bs_vals", {})
+    ax, ay = ec.get("start", SC.D)
+    en = ec.get("en0", 0) % P
+    Gx, Gy, Hx, Hy = SC.GX, SC.GY, SC.H[0], SC.H[1]
+
+    def tw(r, name, v):                                  # value of a cell after the (optional) forgery
+        return (v + tam.get((r, name), 0)) % P
+
+    for r in range(EC_BITS):
         row = rows[ri]
-        key = mc.get("key0", salt) if r == 0 else salt
-        row[IDX["S"]], row[IDX["KEY"]], row[IDX["MSG"]] = s, key, msg
-        if r < MIMC_ROUNDS:
-            t = (s + key + KC[r]) % P
-            u = t * t % P
-            if mc.get("u_tamper", (None,))[0] == r:
-                u = mc["u_tamper"][1] % P
-            row[IDX["U"]] = u
-            s = u * t % P
-            if mc.get("cube_tamper", (None,))[0] == r:
-                s = mc["cube_tamper"][1] % P
-        else:
-            row[IDX["CM"]] = mc["cm"] % P if "cm" in mc else (s + key + msg) % P
+        bn = bn_vals.get(r, (nval >> (EC_BITS - 1 - r)) & 1) % P
+        bs = bs_vals.get(r, (scalar >> (EC_BITS - 1 - r)) & 1) % P
+        ax, ay = ax % P, ay % P
+        l1 = tw(r, "L1", (3 * ax * ax + SC.ALPHA) * pow(2 * ay, -1, P))
+        tx = tw(r, "TX", l1 * l1 - 2 * ax)
+        ty = tw(r, "TY", l1 * (ax - tx) - ay)
+        l2 = tw(r, "L2", (Gy - ty) * pow(Gx - tx, -1, P))
+        i2 = tw(r, "I2", pow(Gx - tx, -1, P))
+        wx = tw(r, "WX", l2 * l2 - tx - Gx)
+        wy = tw(r, "WY", l2 * (tx - wx) - ty)
+        vx = tw(r, "VX", tx + bn * (wx - tx))
+        vy = tw(r, "VY", ty + bn * (wy - ty))
+        l3 = tw(r, "L3", (Hy - vy) * pow(Hx - vx, -1, P))
+        i3 = tw(r, "I3", pow(Hx - vx, -1, P))
+        xx = tw(r, "XX", l3 * l3 - vx - Hx)
+        xy = tw(r, "XY", l3 * (vx - xx) - vy)
+        for nm, v in (("AX", ax), ("AY", ay), ("L1", l1), ("TX", tx), ("TY", ty), ("L2", l2), ("I2", i2), ("WX", wx),
+                      ("WY", wy), ("VX", vx), ("VY", vy), ("L3", l3), ("I3", i3), ("XX", xx), ("XY", xy), ("BN", bn),
+                      ("BS", bs), ("EN", en)):
+            row[IDX[nm]] = v
+        ax = tw(r, "AX_next", vx + bs * (xx - vx))
+        ay = tw(r, "AY_next", vy + bs * (xy - vy))
+        en = (2 * en + bn) % P
+        if ec.get("en_jump") and ec["en_jump"][0] == r:
+            en = (en + ec["en_jump"][1]) % P
         ri += 1
+    rows[ri][IDX["AX"]], rows[ri][IDX["AY"]], rows[ri][IDX["EN"]] = ax % P, ay % P, en
+    ri += 1
 
     def setbits(row, base, v):
         if 0 <= v < (1 << WB):
@@ -429,24 +480,24 @@ def check_trace(air, rows):
 
 
 # ============================================================================ API
-def prove_prime(chain, salt=None, profile=PROFILE, _force=False):
-    salt = secrets.randbelow(P) if salt is None else salt
-    rows = build_rows(chain, salt, profile)
-    cm = commit(chain[0]["n"], salt)
-    air = PrimeAIR(cm, profile)
-    return cm, S.prove(air, rows, _force=_force)
+def prove_prime(chain, scalar=None, profile=PROFILE, _force=False):
+    """Prove that the n at the top of `chain` is prime. Returns (C, proof) with C = n*G + scalar*H."""
+    scalar = secrets.randbits(EC_BITS) if scalar is None else scalar
+    rows = build_rows(chain, scalar, profile)
+    C = commit(chain[0]["n"], scalar)
+    air = PrimeAIR(C, profile)
+    return C, S.prove(air, rows, _force=_force)
 
 
-def verify_prime(cm, proof, profile=PROFILE):
-    if type(cm) is not int or not (0 <= cm < P):
+def verify_prime(C, proof, profile=PROFILE):
+    if type(C) is not tuple or len(C) != 2 or not SC.on_curve(C) or C is None or end_point(C) is None:
         return False
-    return S.verify(PrimeAIR(cm, profile), proof)
+    return S.verify(PrimeAIR(C, profile), proof)
 
 
 # ============================================================================ self-test
 def _selftest():
     import copy
-    import random
     failures = []
 
     def check(name, got, want=True):
@@ -456,26 +507,29 @@ def _selftest():
             failures.append(name)
 
     desc, first_rows = layout()
-    N = S.trace_len(PrimeAIR(0))
+    air0 = PrimeAIR(None)
+    N = S.trace_len(air0)
     print(f"profile {PROFILE}: {len(desc)} real rows, trace length N = {N}, width {WIDTH}, "
-          f"{PrimeAIR(0).n_constraints} constraints, degree 3")
+          f"{air0.n_constraints} constraints, degree 3")
     rng = random.Random(secrets.randbits(64))
 
     print("\n1) an honest witness satisfies every constraint")
     chain = make_chain(rng=rng)
     n0 = chain[0]["n"]
     print(f"    n = {n0} ({n0.bit_length()} bits), chain {[t['n'] for t in chain]}")
-    salt = secrets.randbelow(P)
-    rows = build_rows(chain, salt)
-    cm = commit(n0, salt)
-    air = PrimeAIR(cm)
+    scalar = secrets.randbits(EC_BITS)
+    rows = build_rows(chain, scalar)
+    C = commit(n0, scalar)
+    air = PrimeAIR(C)
     check("no constraint violated on the honest trace", check_trace(air, rows), {})
+    check("the accumulator ends at C + 2^252 * D", (rows[ECEND][IDX["AX"]], rows[ECEND][IDX["AY"]]) == end_point(C))
     check("n is prime (independent test)", is_prime(n0))
     check("chain links: every q is the next n", all(chain[i]["q"] == chain[i + 1]["n"] for i in range(4)) and chain[-1]["q"] == 3)
 
     print("\n2) every load-bearing cell matters: mutate one cell, expect a violation")
     used = {
-        "mimc": {"S", "U", "KEY", "MSG", "Q", "V"},
+        "ec": {"AX", "AY", "L1", "TX", "TY", "L2", "I2", "WX", "WY", "VX", "VY", "L3", "I3", "XX", "XY", "BN", "BS", "EN"},
+        "ecend": {"EN"},
         "rngG": {"V", "G", "N", "QR", "RR", "MM", "Q"},
         "sq": {"A", "B", "Q", "V", "EA", "G", "N", "QR", "RR", "MM"},
         "mul": {"A", "B", "Q", "V", "EB", "EA", "G", "N", "QR", "RR", "MM"},
@@ -491,15 +545,13 @@ def _selftest():
     pub = pub_table(desc, PROFILE, len(rows) + 1)
     for kind, rl in by_kind.items():
         for r in rng.sample(rl, min(len(rl), 8)):
-            cols = [c for c in range(WIDTH)]
-            for c in cols:
+            for c in range(WIDTH):
                 name = COLS[c] if c < BQ0 else ("BQ" if c < BV0 else "BV")
                 row = rows[r]
                 old = row[c]
                 row[c] = (old + 1) % P
-                lo = max(0, r - 1)
                 hit = False
-                for rr in range(lo, min(r + 1, len(rows) - 2) + 1):
+                for rr in range(max(0, r - 1), min(r + 1, len(rows) - 2) + 1):
                     p = [pub[nm][rr] for nm in PUBN]
                     if any(_constraints(rows[rr], rows[rr + 1], p)):
                         hit = True
@@ -508,11 +560,9 @@ def _selftest():
                 tested += 1
                 if name in ("BQ", "BV"):
                     continue
-                extra_used = name in used.get(kind, set()) or (kind == "mimc" and name == "CM" and desc[r]["r"] == MIMC_ROUNDS)
+                extra_used = name in used.get(kind, set())
                 if kind == "bez" and name == "EA" and desc[r]["which"] == 3:
                     extra_used = True
-                if kind == "mimc" and name == "U" and desc[r]["r"] == MIMC_ROUNDS:
-                    extra_used = False
                 if kind == "ferm" and name == "G":
                     extra_used = False
                 if extra_used and not hit:
@@ -520,7 +570,6 @@ def _selftest():
     check(f"every load-bearing cell is tied down ({tested} mutations tried)", undetected_used, [])
     if undetected_used:
         print("    undetected:", undetected_used[:10])
-    # bit cells: flipping a bit of Q or V must be caught everywhere (recomposition)
     flips_missed = 0
     for r in rng.sample(range(len(rows) - 1), 60):
         for c in (BQ0 + rng.randrange(WB), BV0 + rng.randrange(WB)):
@@ -534,15 +583,14 @@ def _selftest():
 
     print("\n3) forged certificates violate the constraints (which ones is shown)")
 
-    def forged(label, chain_f, salt_f=None, profile=PROFILE):
-        salt_f = salt if salt_f is None else salt_f
-        rows_f = build_rows(chain_f, salt_f, profile)
-        air_f = PrimeAIR(commit(chain_f[0]["n"], salt_f), profile)
+    def forged(label, chain_f, scalar_f=None, profile=PROFILE):
+        scalar_f = scalar if scalar_f is None else scalar_f
+        rows_f = build_rows(chain_f, scalar_f, profile)
+        air_f = PrimeAIR(commit(chain_f[0]["n"], scalar_f), profile)
         bad = check_trace(air_f, rows_f)
         print(f"    {label}: violated {sorted(bad)}")
         return bad, rows_f, air_f
 
-    # composite top number: take a valid tier and a deliberately composite n_0 = 2 q R + 1
     ch = copy.deepcopy(chain)
     q0 = ch[0]["q"]
     while True:
@@ -552,32 +600,27 @@ def _selftest():
     ch[0] = {"n": 2 * q0 * R0 + 1, "q": q0, "R": R0}
     bad_c, rows_c, air_c = forged("composite n_0", ch)
     check("composite n_0 is rejected (Fermat or Bezout fails)", bool(bad_c))
-    # R too large although n is prime (n > 4 q^2): tier 3 with q = n_4 = 7 and R = 14 > 2q - 1 = 13, n_3 = 197
     ch = make_chain(rng=rng, forced_R={4: 1, 3: 14})
     assert ch[3]["n"] == 197 and is_prime(197) and ch[3]["R"] > 2 * ch[3]["q"] - 1
     bad_r, rows_r, air_r = forged("R = 14 > 2q - 1 with prime n_3 = 197", ch)
     check("R > 2q - 1 (prime n, valid Fermat and Bezout) is rejected, caught by the range-bit recomposition",
           sorted(bad_r), ["recomp_V"])
-    # terminal prime other than 3
     ch = make_chain(rng=rng, terminal=5)
     bad_t, _, _ = forged("terminal q = 5", ch)
     check("a chain that ends at 5 instead of 3 is rejected", "boundary" in bad_t)
-    # wrong commitment (different salt than the trace was built with)
-    air_w = PrimeAIR(commit(n0, (salt + 1) % P))
-    check("trace checked against a commitment of another salt is rejected", "boundary" in check_trace(air_w, rows))
-    # broken link: q of tier 2 is not the next n
+    check("trace checked against a commitment with another blinding scalar is rejected",
+          "boundary" in check_trace(PrimeAIR(commit(n0, scalar + 1)), rows))
+    check("trace checked against a commitment to another n is rejected",
+          "boundary" in check_trace(PrimeAIR(commit(n0 + 2, scalar)), rows))
     ch = copy.deepcopy(chain)
-    ch[2]["q"] = ch[3]["n"] + 2 * ch[3]["n"]            # q != n_3
+    ch[2]["q"] = ch[3]["n"] + 2 * ch[3]["n"]
     ch[2]["n"] = 2 * ch[2]["q"] * ch[2]["R"] + 1
     bad_l, _, _ = forged("tier 2 uses a q that is not the next tier's n", ch)
     check("broken tier link is rejected", "tier_link_n_is_q" in bad_l or bool(bad_l))
-    # a prime factor replaced by an uncertified composite q' (tier 2 is internally valid, its q' is just not
-    # the n certified by tier 3): only the tier link can catch this
     qc = next(x for x in range(200, 512) if not is_prime(x) and x % 2 == 1)
     ch = make_chain(rng=rng, forced_q={2: qc})
     bad_k, _, _ = forged(f"tier 2 built on the composite q' = {qc} (a skipped factorisation)", ch)
     check("a skipped factorisation is caught by the tier link alone", sorted(bad_k), ["tier_link_n_is_q"])
-    # out-of-range base (wrap attack)
     rows_b = copy.deepcopy(rows)
     r_g = by_kind["rngG"][0]
     rows_b[r_g][IDX["G"]] = (rows_b[r_g][IDX["G"]] + (1 << 70)) % P
@@ -586,32 +629,33 @@ def _selftest():
 
     print("\n3b) one forged trace per constraint, each violating exactly that constraint")
     cheats = _single_family_cheats(rng)
-    names = sorted(set(PrimeAIR(0).names))
+    names = sorted(set(air0.names))
     for nm in names:
         check(f"{nm}: the forged trace violates exactly this constraint", cheats.get(nm), {nm})
     check("every constraint of the AIR has such a forged trace", sorted(cheats), names)
 
     print("\n4) end to end: prove and verify")
     t0 = time.time()
-    cm_, proof = prove_prime(chain, salt)
+    C_, proof = prove_prime(chain, scalar)
     t_prove = time.time() - t0
     t0 = time.time()
-    ok = verify_prime(cm_, proof)
+    ok = verify_prime(C_, proof)
     t_ver = time.time() - t0
     check("honest proof accepted", ok)
     print(f"    prove {t_prove:.1f} s, verify {t_ver:.2f} s, proof {S.proof_size_bytes(proof) / 1024:.0f} KiB")
-    check("commitment matches commit(n, salt)", cm_ == commit(n0, salt))
-    check("proof checked against another commitment: rejected", verify_prime((cm_ + 1) % P, proof), False)
-    check("proof checked against another profile: rejected", verify_prime(cm_, proof, profile=(64, 33, 17, 9, 6)), False)
-    check("the honest prover refuses a forged chain (composite n_0)",
-          _refuses(lambda: S.prove(air_c, rows_c)))
-    check("a forced proof of the composite n_0 is rejected", verify_prime(air_c.cm, S.prove(air_c, rows_c, _force=True)), False)
-    check("a forced proof with R > 2q - 1 is rejected", verify_prime(air_r.cm, S.prove(air_r, rows_r, _force=True)), False)
+    check("commitment is n*G + s*H", C_ == commit(n0, scalar))
+    check("proof checked against another commitment: rejected", verify_prime(SC.add(C_, SC.G), proof), False)
+    check("proof checked against a commitment to another n (same blinding): rejected", verify_prime(commit(n0 + 2, scalar), proof), False)
+    check("a commitment point off the curve is rejected", verify_prime((C_[0], (C_[1] + 1) % P), proof), False)
+    check("proof checked against another profile: rejected", verify_prime(C_, proof, profile=(64, 33, 17, 9, 6)), False)
+    check("the honest prover refuses a forged chain (composite n_0)", _refuses(lambda: S.prove(air_c, rows_c)))
+    check("a forced proof of the composite n_0 is rejected", verify_prime(air_c.C, S.prove(air_c, rows_c, _force=True)), False)
+    check("a forced proof with R > 2q - 1 is rejected", verify_prime(air_r.C, S.prove(air_r, rows_r, _force=True)), False)
     blob = repr(proof).encode()
-    check("n and the salt do not appear in the proof", str(n0).encode() not in blob and str(salt).encode() not in blob)
+    check("n and the blinding scalar do not appear in the proof", str(n0).encode() not in blob and str(scalar).encode() not in blob)
 
     print(f"\n{'ALL CHECKS PASSED' if not failures else str(len(failures)) + ' CHECK(S) FAILED: ' + ', '.join(failures)}")
-    print("Reminder: toy STARK + home-made algebraic commitment; soundness conjectured, zero knowledge argued; unaudited.")
+    print("Reminder: toy STARK; soundness conjectured, zero knowledge argued; unaudited.")
     return 1 if failures else 0
 
 
@@ -619,7 +663,8 @@ def _single_family_cheats(rng):
     """One forged trace per constraint, each violating EXACTLY that constraint (all others hold). Returns
     {name: set of violated constraint names}. If a constraint is removed from the AIR, the cheat built for it
     becomes a valid-looking trace, so the assertion in the self-test fails: this is the removal check, made
-    permanent. The cheats are real attacks (wrong exponent, forged commitment, non-boolean bit, ...)."""
+    permanent. The cheats are real attacks (wrong exponent, forged commitment, non-boolean bit, a G-scalar that
+    wraps modulo the field, ...)."""
     desc, _ = layout()
 
     def small_chain():
@@ -640,14 +685,17 @@ def _single_family_cheats(rng):
     m3 = q3 * R3
     L1, L2, L3 = tier_bits(PROFILE, 3)
     inv2 = lambda e: pow(pow(2, e, P), -1, P)
-    salt = secrets.randbelow(P)
+    scalar = secrets.randbits(EC_BITS)
     out = {}
 
     def run(name, cheat=None, edit=None, chain_c=None):
-        rows = build_rows(chain_c or chain, salt, PROFILE, cheat)
+        rows = build_rows(chain_c or chain, scalar, PROFILE, cheat)
         if edit:
             edit(rows)
-        air = PrimeAIR(rows[MIMC_ROUNDS][IDX["CM"]])
+        air = PrimeAIR(None)
+        # the forged trace brings its own final point: the public statement is whatever it computed
+        air.boundary = [(IDX["AX"], ECEND, rows[ECEND][IDX["AX"]]), (IDX["AY"], ECEND, rows[ECEND][IDX["AY"]]),
+                        (IDX["QR"], air.first_rows[-1], 3)]
         out[name] = set(check_trace(air, rows))
 
     def rowsof(kind, tier=3, **flt):
@@ -745,10 +793,6 @@ def _single_family_cheats(rng):
     run("hold_RR", edit=bump("ferm", "RR", 1, chk="m"))
     run("hold_MM", edit=bump("bez", "MM", 1, which=2))
 
-    def e_msg(rows):
-        rows[50][IDX["MSG"]] = (rows[50][IDX["MSG"]] + 1) % P
-    run("hold_MSG", edit=e_msg)
-
     # ---- forged ladders and registers (the builder keeps everything else consistent)
     e3 = 3 * m3                                                # a wrong exponent that still gives y = -1
     run("exp_is_m", {"tier": 3, "exp": {1: e3}})
@@ -768,19 +812,33 @@ def _single_family_cheats(rng):
     big = make_chain(rng=rng)
     run("bit_boolean", {"tier": 2, "ebj": {1: {1: 1, 2: -2}}}, chain_c=big)
 
-    # ---- the algebraic commitment
+    # ---- the in-circuit commitment C = n*G + s*H (the forged trace computes its own point; the builder keeps every
+    # gadget consistent except the one named)
     n0 = chain[0]["n"]
-    run("hold_KEY", {"mimc": {"key0": (salt + 1) % P}})
-    run("mimc_start", {"mimc": {"s0": n0 + 1}})
-    run("mimc_square", {"mimc": {"u_tamper": (10, 12345)}})
-    run("mimc_cube", {"mimc": {"cube_tamper": (10, 777)}})
-    run("mimc_end", {"mimc": {"cm": 99}})
-    run("commit_to_n", {"mimc": {"msg": n0 + 2}})
+    n_alt = n0 - 2                                             # any other integer below 2^64
+    r0, rg = 100, 200                                          # a row without G (r < 188) and one with G
+    for name, row, cell in (("ec_dbl_lam", r0, "L1"), ("ec_dbl_x", r0, "TX"), ("ec_dbl_y", r0, "TY"),
+                            ("ec_G_lam", rg, "L2"), ("ec_G_inv", rg, "I2"), ("ec_G_x", rg, "WX"),
+                            ("ec_G_y", rg, "WY"), ("ec_G_selx", rg, "VX"), ("ec_G_sely", rg, "VY"),
+                            ("ec_H_lam", rg, "L3"), ("ec_H_inv", rg, "I3"), ("ec_H_x", rg, "XX"),
+                            ("ec_H_y", rg, "XY"), ("ec_H_selx", rg, "AX_next"), ("ec_H_sely", rg, "AY_next")):
+        run(name, {"ec": {"tamper": {(row, cell): 1}}})
+    run("ec_bnG_zero", {"ec": {"n_val": n0 + P}})              # n0 + p is congruent to n0 in the field but commits another value
+    b200, b201 = (n0 >> (EC_BITS - 1 - 200)) & 1, (n0 >> (EC_BITS - 1 - 201)) & 1
+    run("ec_bn_bool", {"ec": {"bn_vals": {200: b200 + 1, 201: b201 - 2}}})   # +2^51 and -2*2^50 cancel in the register
+    run("ec_bs_bool", {"ec": {"bs_vals": {r0: ((scalar >> (EC_BITS - 1 - r0)) & 1) + 2}}})
+    run("ec_En", {"ec": {"n_val": n_alt, "en_jump": (r0, (n0 - n_alt) * inv2(EC_BITS - 1 - r0) % P)}})
+    run("ec_start_En", {"ec": {"n_val": n_alt, "en0": (n0 - n_alt) * inv2(EC_BITS) % P}})
+    run("ec_start_ax", {"ec": {"start": (SC.D[0] + 1, SC.D[1])}})
+    run("ec_start_ay", {"ec": {"start": (SC.D[0], SC.D[1] + 1)}})
+    run("ec_link_n", {"ec": {"n_val": n_alt}})                  # commits n_alt, proves n0 prime
 
     # ---- a q that is not the next tier's n (a skipped factorisation)
     qc = next(x for x in range(200, 512) if not is_prime(x) and x % 2 == 1)
     run("tier_link_n_is_q", chain_c=make_chain(rng=rng, forced_q={2: qc}))
     return out
+
+
 
 
 

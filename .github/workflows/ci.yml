@@ -31,7 +31,10 @@ jobs:
           python zk_threecolor.py
           python threecolor_link.py
           python stark_core.py
+          python stark_curve.py
           python stark_primality.py
+          python link_commitments.py
+          python goldbach_stark.py
 
       - name: Build native module
         run: gcc -O3 -Wall -Wextra -o zkrp_fast zkrp_fast.c

@@ -1,6 +1,6 @@
 """
 stark_core.py - a small, transparent (hash-based) STARK: algebraic intermediate representation (AIR),
-DEEP composition and FRI, over a 180-bit prime field. Pure Python, only SHA-256 and field arithmetic.
+DEEP composition and FRI, over the 252-bit prime field p = 2^251 + 17 * 2^192 + 1. Pure Python, only SHA-256 and field arithmetic.
 
     Statement  : "there is a trace (a table of field elements) that satisfies the AIR's transition
                   constraints on every pair of consecutive real rows and its boundary constraints"
@@ -10,7 +10,7 @@ DEEP composition and FRI, over a 180-bit prime field. Pure Python, only SHA-256 
     No trusted setup, no pairings, no discrete logarithms: security rests on the collision resistance of SHA-256
     and on the FRI soundness conjecture (the same assumption family as production STARKs).
 
-Parameters (conservative-looking, NOT a proven bound): blowup 8, 40 queries, 180-bit field. Soundness error is
+Parameters (conservative-looking, NOT a proven bound): blowup 8, 40 queries, 252-bit field. Soundness error is
 about (1/2)^(3*40) under the usual conjecture for FRI with rate 1/8, plus a term of about
 (degree / field size) from the out-of-domain point.
 
@@ -27,11 +27,11 @@ import hashlib
 import secrets
 import sys
 
-K2 = 40                                     # P - 1 = C * 2^K2
-C = 696898287454081973172991196020261297061911
-P = C * (1 << K2) + 1
-GEN = 307980320391217195546913515660288714472021043155848589   # element of order exactly 2^K2
-EL = 24                                     # bytes per field element
+K2 = 192                                    # P - 1 = C * 2^K2
+C = (1 << 59) + 17
+P = C * (1 << K2) + 1                        # 2^251 + 17 * 2^192 + 1, the field of the Stark elliptic curve
+GEN = pow(3, C, P)                           # 3 generates the multiplicative group, so this has order exactly 2^K2
+EL = 32                                     # bytes per field element
 BLOWUP = 8
 QUERIES = 40
 FINAL_DEG = 8
@@ -632,7 +632,7 @@ def _selftest():
 
     print(f"field: {P.bit_length()}-bit, blowup {BLOWUP}, {QUERIES} queries, min padding {PAD} rows")
     print("\n0) field and FFT sanity")
-    check("GEN has order exactly 2^40", pow(GEN, 1 << (K2 - 1), P) != 1 and pow(GEN, 1 << K2, P) == 1)
+    check("GEN has order exactly 2^K2", pow(GEN, 1 << (K2 - 1), P) != 1 and pow(GEN, 1 << K2, P) == 1)
     a = [secrets.randbelow(P) for _ in range(64)]
     check("NTT round trip", ntt(ntt(a), inverse=True) == a)
     x = secrets.randbelow(P)

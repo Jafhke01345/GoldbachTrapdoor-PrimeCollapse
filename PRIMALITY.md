@@ -91,22 +91,26 @@ magnitude cheaper. Benchmark before relying on these numbers.
 
 ## 6. What is still missing
 
-Library selection, a production curve, an implemented circuit, the commitment link of
-section 3, and an independent cryptographic review.
+Library selection, a production curve, 1024-bit numbers, and an independent cryptographic review. (The circuit
+and the commitment link of section 3 are implemented for 64-bit numbers, see section 7.)
 
 ## 7. What is implemented (stark_primality.py)
 
 A hash-based STARK (`stark_core.py`) instead of a pairing SNARK, so there is no trusted setup. Measured on
 this container: a proof for a 64-bit prime with a five-tier chain (profile 64, 33, 17, 9, 5; terminal prime 3)
-takes about 9 s to produce, 0.1 s to verify and is about 420 KiB; the trace has 686 real rows and 144 columns.
+takes about 11 s to produce, 0.1 s to verify and is about 554 KiB; the trace has 824 real rows and 157 columns (the curve commitment adds 253 rows).
 
 - Modular multiplication is a gadget: `A*B = Q*N + V` with `Q` and `V` range-checked to 64 bits by bit
-  columns, so no wrap can occur in the 180-bit field. Exponentiation is a square-and-multiply ladder with
+  columns, so no wrap can occur in the 252-bit field. Exponentiation is a square-and-multiply ladder with
   boolean witness bits and an exponent register that is compared with `(n-1)/2`, `2R` or `q`.
 - The Bezout witness replaces a gcd loop, exactly as in section 2. `R <= 2q - 1` replaces `R < q` (the chain
   uses `F = 2q`, so `4q^2 > n` is the condition that matters).
 - The chain ends at 3, tier links force each `q` to be the next tier's `n`.
-- The public input is `cm = MiMC(n, salt)`: 114 rounds of `x -> (x + salt + k_i)^3` in the STARK field.
-  This binds `n` inside the circuit; linking it to the Pedersen commitment `Ca` is still missing (section 3).
-- Not done: 1024-bit numbers (the 64-bit limbs of section 2 and a larger field), the Pedersen link, a hiding
+- The public input is a curve point `C = n*G + s*H` on the Stark curve (`stark_curve.py`), computed in the circuit
+  by double-and-add from a hashed start point; `G` is added only in the last 64 rows so `n` cannot wrap, each
+  addition proves its x-coordinates differ, and the bits of `n` are tied to the chain's top value. A scalar
+  `n + p` (equal in the field) would commit another value modulo the curve order; it is rejected by a constraint.
+- The link to `Ca` is `link_commitments.py` (one integer response below 2^241 across two groups) and
+  `goldbach_stark.py` composes everything. Group parameters are also now checked for primality in `zk_primality_circuit.py`.
+- Not done: 1024-bit numbers (the 64-bit limbs of section 2 and a larger field), a hiding
   argument beyond random padding and masking, an audit. The size profile (chain length) is public.
