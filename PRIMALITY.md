@@ -56,7 +56,7 @@ Per-level constraints:
 |---|---|---|
 | $n_i - 2 q_i R_i - 1 = 0$ | chain structure | big-integer multiplication |
 | $R_i < q_i$ | guarantees $F^2 > n_i$ | bit-decomposition range check |
-| $u_i = a_i^{(n_i-1)/q_i} \bmod n_i$ and $u_i^{q_i} \equiv 1 \pmod{n_i}$ | Fermat condition | two modular exponentiations |
+| $u_i = a_i^{(n_i-1)/q_i} \bmod n_i$ and $u_i^{q_i} \equiv 1 \pmod{n_i}$ (section 2 design); the implementation checks the weaker $u_i^{2q_i} \equiv 1$, which `stark_primality.py` and `SPEC.md` show is still sufficient | Fermat condition | two modular exponentiations |
 | $(a_i^{(n_i-1)/f} - 1)\cdot w_i \equiv 1 \pmod{n_i}$ for $f \in \{2, q_i\}$ | the gcd condition, via an inverse witness instead of an in-circuit Euclidean loop | big-integer multiplication |
 | $q_{i+1} = n_i$ | chain linking | equality |
 

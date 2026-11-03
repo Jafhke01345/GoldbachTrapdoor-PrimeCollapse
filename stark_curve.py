@@ -65,6 +65,19 @@ def mul(k, a):
     return r
 
 
+def mul_unreduced(k, a):
+    """k*a for a non-negative integer k, WITHOUT reducing k modulo the group order (so it can test the order itself)."""
+    if type(k) is not int or isinstance(k, bool) or k < 0:
+        raise ValueError("scalar must be a non-negative integer")
+    r = None
+    while k:
+        if k & 1:
+            r = add(r, a)
+        a = add(a, a)
+        k >>= 1
+    return r
+
+
 def _sqrt(a):
     """Tonelli-Shanks; p - 1 = 2^192 * odd."""
     a %= P
@@ -139,22 +152,31 @@ def _det_prime(n):
     return True
 
 
+def _is_int(x):
+    return type(x) is int                            # bool and other subclasses are refused
+
+
 def certify_prime(n, table, _depth=0):
     """True iff `table` proves n prime. table maps a number to the list of prime factors (with repetition) of number - 1."""
     import math
-    if _depth > 8 or type(n) is not int or n < 2:
-        return False
-    if n < _DET_LIMIT and _det_prime(n) and n not in table:
-        return True                                  # small enough for the deterministic test
-    factors = table.get(n)
-    if factors is None or math.prod(factors) != n - 1:
-        return False
-    for q in set(factors):
-        if not (q == 2 or certify_prime(q, table, _depth + 1)):
+    try:
+        if _depth > 8 or not _is_int(n) or n < 2 or type(table) is not dict:
             return False
-        if not any(pow(a, n - 1, n) == 1 and math.gcd(pow(a, (n - 1) // q, n) - 1, n) == 1 for a in range(2, 300)):
+        if n < _DET_LIMIT and _det_prime(n) and n not in table:
+            return True                              # small enough for the deterministic test
+        factors = table.get(n)
+        if type(factors) not in (list, tuple) or not factors or not all(_is_int(f) and f >= 2 for f in factors):
             return False
-    return True
+        if math.prod(factors) != n - 1:
+            return False
+        for q in set(factors):
+            if not (q == 2 or certify_prime(q, table, _depth + 1)):
+                return False
+            if not any(pow(a, n - 1, n) == 1 and math.gcd(pow(a, (n - 1) // q, n) - 1, n) == 1 for a in range(2, 300)):
+                return False
+        return True
+    except Exception:
+        return False                                 # fail closed on any malformed certificate
 
 
 # p - 1 = 2^192 * 5 * 7 * 98714381 * 166848103;  Q_C - 1 = 2 * 3 * 1481071 * 74436419 * R, R a 202-bit prime whose own
@@ -226,6 +248,12 @@ def _selftest():
                 and all(_gcd_only(n_, q_) for q_ in set(_fact(n_ - 1)))), None)
     check("a composite n whose factors of n - 1 all pass the gcd condition is rejected only by the Fermat condition",
           fer is not None and not certify_prime(fer, {fer: _fact(fer - 1)}))
+    mal = (certify_prime(Q, None), certify_prime(Q, []), certify_prime(Q, {Q: None}), certify_prime(Q, {Q: "23"}),
+           certify_prime(Q, {Q: [2, 3, True]}), certify_prime(Q, {Q: [2, 3.0]}), certify_prime(Q, {Q: [2, 3, -5]}),
+           certify_prime(Q, {Q: []}), certify_prime(True, {}), certify_prime("97", {}), certify_prime(None, {}),
+           certify_prime(97, {97: [2, 2, 2, 2, 2, 3, 0]}))
+    check("malformed tables, factor lists and numbers are rejected without an exception", not any(mal))
+    check("a boolean is not accepted as a factor or as the number", not certify_prime(3, {3: [True, 2]}) and not certify_prime(True, {}))
     check("a prime n whose factor list is incomplete (97: [2, 3], product 6 != 96) is rejected", not certify_prime(97, {97: [2, 3]}))
     check("the deterministic test refuses numbers above its proven range (Q)", not _det_prime(Q))
     check("the deterministic test rejects strong pseudoprimes to the first bases (1373653 to bases 2, 3; 3215031751 to 2, 3, 5, 7)",
@@ -233,7 +261,20 @@ def _selftest():
     check("a number with no table entry and too large for the deterministic test is rejected", not certify_prime(Q, {}))
     check("a prime below the deterministic limit needs no entry (97)", certify_prime(97, {}))
     check("the Hasse interval holds: |Q - (p + 1)| <= 2 sqrt(p)", abs(Q - (P + 1)) ** 2 <= 4 * P)
-    check("G is on the curve and Q*G is the identity", on_curve(G) and mul(Q, G) is None)
+    # mul() reduces its scalar modulo Q, so mul(Q, G) would be the identity whatever Q is; the order is tested unreduced
+    check("G is on the curve, G is not the identity, and Q*G is the identity (unreduced scalar)",
+          on_curve(G) and G is not None and mul_unreduced(Q, G) is None)
+    check("the unreduced test is not vacuous: (Q - 1)*G is not the identity and Q + 1 gives G back",
+          mul_unreduced(Q - 1, G) is not None and mul_unreduced(Q + 1, G) == G)
+    _Q0 = Q
+    globals()["Q"] = _Q0 + 1                         # if mul_unreduced consulted Q, this would change its answer
+    try:
+        independent = mul_unreduced(_Q0 + 1, G) == G and mul_unreduced(_Q0, G) is None
+    finally:
+        globals()["Q"] = _Q0
+    check("mul_unreduced does not depend on the module's group order", independent)
+    check("mul reduces its scalar (mul(Q, G) is the identity by construction), unlike mul_unreduced",
+          mul(Q, G) is None and mul(Q + 1, G) == G)
     check("H and D are on the curve and different from each other and from G",
           on_curve(H) and on_curve(D) and len({G, H, D}) == 3)
     check("the group law is consistent: (a + b)*G = a*G + b*G", mul(12345 + 67890, G) == add(mul(12345, G), mul(67890, G)))

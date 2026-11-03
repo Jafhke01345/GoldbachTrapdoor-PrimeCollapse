@@ -74,7 +74,8 @@ H = (0x7fc67f23180fafc9d290f99dbe1cd65b9e649bd760e31b2457cd56864bb698c, 0x67c813
 D = (0x3c2c531d028c143430a1ce8b851da78397c958798bd614ee28023a0f9acbade, 0x6698a75b0f09e90c033d42f9c9dab2490671af431be2f416708cd57de6450de)
 ```
 
-Commitment: `ComC(n, s) = n*G + s*H`, scalars reduced modulo `Q_C`. `D` is used only inside the circuit (section 4.2).
+Commitment: `ComC(n, s) = n*G + s*H`, scalars reduced modulo `Q_C`. `Q_C * G = infinity` is checked with an unreduced scalar multiplication
+(`mul_unreduced`; the ordinary `mul` reduces its scalar, so `mul(Q_C, G)` would be the identity whatever `Q_C` is). `D` is used only inside the circuit (section 4.2).
 
 ### 1.3 Primality assurance of the parameters
 
@@ -145,9 +146,18 @@ Columns (29 named, 157 including bit columns), 183 constraints, degree 3. A trac
   blinding bit `BS` is set; every addition proves its two x-coordinates differ by supplying an inverse. The register `EN`
   collects the bits of `n`. Boundary: the accumulator at the `ecend` row equals `C + 2^252 * D`, where `C` is the public
   commitment, and `EN` equals the chain's top `n` on the link row.
-- five Pocklington tiers, sizes `(64, 33, 17, 9, 5)` bits. Per tier: `n = 2qR + 1` with `1 <= R <= 2q - 1`; the Fermat power
-  `a^(n-1) = 1` through the factor-`2` and factor-`q` conditions `a^((n-1)/2)` and `a'^((n-1)/q)`, with Bezout witnesses for
-  the gcd conditions; modular multiplication `A*B = Q*N + V` with 64-bit range-checked quotient and remainder; exponents are
+- five Pocklington-style tiers, sizes `(64, 33, 17, 9, 5)` bits. Per tier: `n = 2qR + 1` with `1 <= R <= 2q - 1`. Factor 2:
+  `y2 = a2^((n-1)/2)` with `y2^2 = 1` and `gcd(y2 - 1, n) = 1` (so `a2^(n-1) = 1`, the usual condition). Factor `q`:
+  `yq = aq^((n-1)/q)` with `gcd(yq - 1, n) = 1` and `y3^2 = 1` where `y3 = yq^q`, that is `yq^(2q) = 1`, which is WEAKER than the
+  usual `aq^(n-1) = 1` (`y3 = 1`). The weaker form is still sufficient, by an argument that is not Pocklington's theorem as
+  stated: for an odd prime `q`, `n = 2qR + 1`, `1 <= R <= 2q - 1`, every prime `p | n` has `ord_p(yq) in {2, q, 2q}`; order
+  `q` or `2q` forces `q | p - 1` (so `p >= 2q + 1`), order 2 forces `yq = -1 (mod p)` and `2^(v2(R)+2) | p - 1`; if all prime
+  divisors were of the second kind, `n = 1 (mod 2^(v2(R)+2))` would contradict `v2(n-1) = v2(R) + 1`; the product `M` of
+  the second-kind prime powers satisfies `M = 1 (mod q)`, `M` odd and `M < 2q`, so `M = 1`; then every prime divisor is `>= 2q + 1`
+  and a composite `n` would exceed `4q^2`. The full argument is in the docstring of `stark_primality.py`; the self-test
+  confirms it exhaustively for all odd primes `q <= 41` (every `R`, every base) and shows the search finds counterexamples if
+  the gcd condition or the bound `R <= 2q - 1` is dropped. This argument needs independent review. The gcd conditions use
+  inverse witnesses; modular multiplication `A*B = Q*N + V` with 64-bit range-checked quotient and remainder; exponents are
   square-and-multiply ladders with witness bits and an exponent register compared with `(n-1)/2`, `2R` or `q`.
 - tier links (each `q` is the next tier's `n`) and the terminal value `q = 3`.
 

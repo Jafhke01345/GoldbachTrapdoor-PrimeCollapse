@@ -10,9 +10,19 @@ witnesses, and not the blinding scalar.
     The AIR enforces, for every tier (all arithmetic is modular multiplication gadgets with 64-bit range checks):
         n = 2 q R + 1 over the integers and q*R computed exactly; 1 <= R <= 2q - 1 (so 4 q^2 > n);
         y2 = a2^((n-1)/2) with y2^2 = 1 (mod n) and (y2 - 1) w2 = 1 (mod n);
-        yq = aq^((n-1)/q) with yq^q = 1 (mod n) and (yq - 1) wq = 1 (mod n);
+        yq = aq^((n-1)/q) with yq^(2q) = 1 (mod n) and (yq - 1) wq = 1 (mod n);
         n_{i+1} = q_i, the chain ends at q = 3, and C = n_0*G + s*H.
-    By Pocklington's theorem each n_i is then prime, hence n_0 is.
+    Each n_i is then prime, hence n_0 is. The factor-2 rows are Pocklington's conditions as usual. For the factor q the
+    circuit checks the WEAKER Fermat form yq^(2q) = 1 (the final row squares y = yq^q and compares with 1), not yq^q = 1.
+    That is still sufficient, by this short argument rather than by Pocklington's theorem as stated: let q be an odd prime,
+    n = 2qR + 1 with 1 <= R <= 2q - 1, and suppose gcd(yq - 1, n) = 1 and yq^(2q) = 1 (mod n) with yq = aq^(2R). For a prime
+    p | n the order of yq modulo p divides 2q and is not 1, so it is 2, q or 2q. (a) If it is q or 2q then q | p - 1, so
+    p >= 2q + 1. (b) If it is 2 then yq = -1 (mod p), so aq^(2R) = -1 and the 2-adic valuation of ord(aq) is v2(R) + 2, hence
+    2^(v2(R)+2) | p - 1. If no prime divisor were of type (a), then n = 1 (mod 2^(v2(R)+2)), contradicting
+    v2(n - 1) = v2(R) + 1. So some prime divisors are of type (a); let N1 be the product of the type-(a) prime powers
+    (N1 = 1 mod q, N1 >= 2q + 1) and M = n / N1 the rest. Then M = 1 (mod q) and M < n / (2q + 1) < 2q, M odd, so M = 1.
+    Every prime divisor of n is of type (a), so a composite n would be at least (2q + 1)^2 > 4q^2 > n. Hence n is prime.
+    The self-test checks this claim exhaustively for every odd prime q <= 41 (every R and every base).
 
 Exponents are hidden: every exponentiation is a square-and-multiply ladder whose bits are witness columns,
 accumulated into a register that is compared with the hidden number it must equal.
@@ -634,6 +644,36 @@ def _selftest():
         check(f"{nm}: the forged trace violates exactly this constraint", cheats.get(nm), {nm})
     check("every constraint of the AIR has such a forged trace", sorted(cheats), names)
 
+    print("\n3c) the factor-q condition: the circuit checks y_q^(2q) = 1, which is enough (see the module docstring)")
+    def lemma_counterexample(q_max=41, need_gcd=True, r_max=lambda q: 2 * q - 1):
+        import math as _m
+        for q in range(3, q_max + 1, 2):
+            if not is_prime(q):
+                continue
+            for R in range(1, r_max(q) + 1):
+                n = 2 * q * R + 1
+                if is_prime(n):
+                    continue
+                for a in range(n):
+                    yq = pow(a, 2 * R, n)
+                    if (not need_gcd or _m.gcd(yq - 1, n) == 1) and pow(yq, 2 * q, n) == 1:
+                        return (q, R, n, a)
+        return None
+    check("no composite n = 2qR + 1 (odd prime q <= 41, 1 <= R <= 2q - 1) has a base with gcd(yq - 1, n) = 1 and yq^(2q) = 1",
+          lemma_counterexample() is None)
+    print("    the same search finds counterexamples when a hypothesis is dropped (so the search can fail):")
+    check("... without the gcd(yq - 1, n) = 1 condition", lemma_counterexample(need_gcd=False) is not None)
+    check("... with R allowed up to 4q (the bound 4q^2 > n is needed)", lemma_counterexample(r_max=lambda q: 4 * q) is not None)
+
+    print("\n3d) forged witnesses are rejected by the STARK verifier itself, not only by the local constraint checker")
+    for name in ("exp_is_q", "x_bezout_yq", "x_ferm_q_value", "range_slack_q", "tier_link_n_is_q"):
+        rows_f, C_f = _FORGED[name]
+        air_f = PrimeAIR(C_f, PROFILE)
+        locally = bool(check_trace(air_f, rows_f))
+        proof_f = S.prove(air_f, rows_f, _force=True)
+        check(f"{name}: the forged trace violates a constraint and the verifier rejects its forced proof",
+              (locally, verify_prime(C_f, proof_f)), (True, False))
+
     print("\n4) end to end: prove and verify")
     t0 = time.time()
     C_, proof = prove_prime(chain, scalar)
@@ -657,6 +697,9 @@ def _selftest():
     print(f"\n{'ALL CHECKS PASSED' if not failures else str(len(failures)) + ' CHECK(S) FAILED: ' + ', '.join(failures)}")
     print("Reminder: toy STARK; soundness conjectured, zero knowledge argued; unaudited.")
     return 1 if failures else 0
+
+
+_FORGED = {}                                       # name -> (rows, public commitment), filled by _single_family_cheats
 
 
 def _single_family_cheats(rng):
@@ -688,15 +731,17 @@ def _single_family_cheats(rng):
     scalar = secrets.randbits(EC_BITS)
     out = {}
 
-    def run(name, cheat=None, edit=None, chain_c=None):
+    def run(name, cheat=None, edit=None, chain_c=None, record=True):
         rows = build_rows(chain_c or chain, scalar, PROFILE, cheat)
         if edit:
             edit(rows)
+        _FORGED[name] = (rows, commit((chain_c or chain)[0]["n"], scalar))
         air = PrimeAIR(None)
         # the forged trace brings its own final point: the public statement is whatever it computed
         air.boundary = [(IDX["AX"], ECEND, rows[ECEND][IDX["AX"]]), (IDX["AY"], ECEND, rows[ECEND][IDX["AY"]]),
                         (IDX["QR"], air.first_rows[-1], 3)]
-        out[name] = set(check_trace(air, rows))
+        if record:
+            out[name] = set(check_trace(air, rows))
 
     def rowsof(kind, tier=3, **flt):
         return [r for r, d in enumerate(desc[:-1]) if d["k"] == kind and d.get("tier") == tier
@@ -804,6 +849,9 @@ def _single_family_cheats(rng):
     jmp = (m3 - e3) * inv2(L1 - 1 - k) % P
     run("mul_to_next_EA", {"tier": 3, "exp": {1: e3}, "jump_hold": {1: (k, jmp)}})
     run("sq_to_mul_EA", {"tier": 3, "exp": {1: e3}, "jump_sqmul": {1: (k, jmp)}})
+    # attacks on the factor-q condition, kept for the verifier-level test (they share a constraint family with the factor-2 cheats)
+    run("x_bezout_yq", edit=bump("bez", "Q", 1, which=3), record=False)
+    run("x_ferm_q_value", edit=bump("ferm", "V", 1, chk="q"), record=False)
     run("bez_to_ladder3_G", {"tier": 3, "shift3": 1})
     run("mul_to_bez_A", {"tier": 3, "shift3": 2})
     run("m_is_qR", {"tier": 3, "R_mult": 3})
