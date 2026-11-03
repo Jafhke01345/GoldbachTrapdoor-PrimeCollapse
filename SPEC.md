@@ -82,13 +82,13 @@ Commitment: `ComC(n, s) = n*G + s*H`, scalars reduced modulo `Q_C`. `D` is used 
 | --- | --- | --- |
 | `P`, `Q` (repository group) | Pocklington chain `65537 -> n1 -> n2 -> n3 -> Q`, then `P = 2Q + 1` by a witness for the factor `Q` (`Q^2 > P`); certificate in `group_params.py`, verified on every import | **Proven** (deterministic), assuming nothing beyond arithmetic |
 | `p` (Stark field) | `p - 1 = 2^192 * 5 * 7 * 98714381 * 166848103`; each factor is prime (deterministic Miller-Rabin below 3.3e24); Pocklington witnesses checked in `stark_curve.py` | **Proven** (deterministic) |
-| `Q_C` (curve order) | 12 fixed plus 40 random Miller-Rabin bases | **Probabilistic**; fixed bases give no proven bound at 251 bits |
+| `Q_C` (curve order) | `Q_C - 1 = 2 * 3 * 1481071 * 74436419 * R` with `R = 5470365079085120887157193270902448565659295524958143968059153` (202 bits); `R - 1 = 2^4 * 3 * 131797 * 10108547 * 22206313 * 74837449 * 28547348873 * 1803099112058626586861`; every prime factor below 3.3e24 is proven by deterministic Miller-Rabin; Pocklington witnesses for `R` and for `Q_C` (`stark_curve.certify_prime`) | **Proven** (deterministic) |
 
 Note: `Q` prime does not by itself make `P = 2Q + 1` prime. What does is the Pocklington witness for the factor `Q` with
 `Q^2 > P`; the certificate includes it, and the derivation only accepts a `Q` whose `P` passes it.
 
-Open: a primality certificate for `Q_C` (the curve order). `Q_C - 1` would have to be factored far enough to apply the same
-theorem; for now it is checked only by Miller-Rabin.
+The certificates for `p` and `Q_C` are checked by `python stark_curve.py`, which also holds crafted counterexamples for every condition of the certificate check.
+The factorisations were found by trial division and Pollard rho; the check does not rely on how they were found.
 
 Assumed: the hash outputs behave like random oracles, so nobody knows `log_g h` (repository group) or `log_G H`
 (curve). The tests can show only subgroup membership and distinctness.
@@ -217,7 +217,8 @@ is rejected by the binding to `Ca` and `Cb` (checked in the self-test).
    assumption on the hashes; not provable).
 2. SHA-256 behaves as a random oracle in all Fiat-Shamir transcripts and in the STARK.
 3. FRI soundness is the conjectured bound (not proven). Zero knowledge of the STARK is argued with random padding and a mask.
-4. The primality of `P`, `Q` and `p` is proven; only the curve order `Q_C` rests on Miller-Rabin (section 1.3).
+4. The primality of `P`, `Q`, `p` and `Q_C` is proven by deterministic certificates (section 1.3). That a parameter is prime says nothing
+   about the strength of the curve beyond its published design.
 5. Range only to 64 bits; the Pocklington profile is fixed at five tiers, so the chain length is public.
 6. Home-made constructions: the in-circuit commitment, the AIR, the link proof and the composition. No independent review.
 7. Not constant-time; pure Python; proofs are about 1.1 MB and take about 22 s to produce.

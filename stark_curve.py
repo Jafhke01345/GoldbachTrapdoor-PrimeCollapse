@@ -108,6 +108,65 @@ def commit(n, s):
     return add(mul(n, G), mul(s, H))
 
 
+# ---------------------------------------------------------------- deterministic primality certificates (Pocklington, n - 1 fully factored)
+# Theorem: if n - 1 = prod q_i^e_i with every q_i prime, and for each distinct q_i some base a has a^(n-1) = 1 (mod n) and
+# gcd(a^((n-1)/q_i) - 1, n) = 1, then n is prime. A factor below 3.3e24 is proven prime by Miller-Rabin with the first 13 prime
+# bases (deterministic in that range); a larger factor needs its own entry in the table (its own fully factored f - 1).
+_DET_LIMIT = 3317044064679887385961981
+_DET_BASES = (2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41)
+
+
+def _det_prime(n):
+    if n < 2 or n >= _DET_LIMIT:
+        return False
+    for p in _DET_BASES:
+        if n % p == 0:
+            return n == p
+    d, s = n - 1, 0
+    while d % 2 == 0:
+        d //= 2
+        s += 1
+    for a in _DET_BASES:
+        x = pow(a, d, n)
+        if x in (1, n - 1):
+            continue
+        for _ in range(s - 1):
+            x = x * x % n
+            if x == n - 1:
+                break
+        else:
+            return False
+    return True
+
+
+def certify_prime(n, table, _depth=0):
+    """True iff `table` proves n prime. table maps a number to the list of prime factors (with repetition) of number - 1."""
+    import math
+    if _depth > 8 or type(n) is not int or n < 2:
+        return False
+    if n < _DET_LIMIT and _det_prime(n) and n not in table:
+        return True                                  # small enough for the deterministic test
+    factors = table.get(n)
+    if factors is None or math.prod(factors) != n - 1:
+        return False
+    for q in set(factors):
+        if not (q == 2 or certify_prime(q, table, _depth + 1)):
+            return False
+        if not any(pow(a, n - 1, n) == 1 and math.gcd(pow(a, (n - 1) // q, n) - 1, n) == 1 for a in range(2, 300)):
+            return False
+    return True
+
+
+# p - 1 = 2^192 * 5 * 7 * 98714381 * 166848103;  Q_C - 1 = 2 * 3 * 1481071 * 74436419 * R, R a 202-bit prime whose own
+# R - 1 = 2^4 * 3 * 131797 * 10108547 * 22206313 * 74837449 * 28547348873 * 1803099112058626586861
+R202 = 5470365079085120887157193270902448565659295524958143968059153
+CERT_TABLE = {
+    P: [2] * 192 + [5, 7, 98714381, 166848103],
+    Q: [2, 3, 1481071, 74436419, R202],
+    R202: [2, 2, 2, 2, 3, 131797, 10108547, 22206313, 74837449, 28547348873, 1803099112058626586861],
+}
+
+
 def _selftest():
     failures = []
 
@@ -133,37 +192,46 @@ def _selftest():
                 return False
         return True
 
-    # p: a deterministic proof (Pocklington). p - 1 = 2^192 * 5 * 7 * 98714381 * 166848103, every factor below 2^28
-    # (prime by Miller-Rabin with the first 13 prime bases, which is deterministic below 3.3e24), and for each factor q
-    # some base a has a^(p-1) = 1 and gcd(a^((p-1)/q) - 1, p) = 1. F = p - 1 > sqrt(p), so p is prime.
-    import math
-    factors = (2, 5, 7, 98714381, 166848103)
-    exps = {2: 192, 5: 1, 7: 1, 98714381: 1, 166848103: 1}
-    check("p - 1 factors completely as 2^192 * 5 * 7 * 98714381 * 166848103",
-          math.prod(q ** exps[q] for q in factors) == P - 1)
-    check("each factor of p - 1 is prime (deterministic Miller-Rabin below 3.3e24)", all(q in (2, 5, 7) or is_prime(q) for q in factors))   # 2, 5, 7 are prime by inspection
-    check("Pocklington witnesses: for every factor q some base a has a^(p-1) = 1 and gcd(a^((p-1)/q) - 1, p) = 1",
-          all(any(pow(a, P - 1, P) == 1 and math.gcd(pow(a, (P - 1) // q, P) - 1, P) == 1 for a in range(2, 60)) for q in factors))
-    # Q (the group order) has no known factorisation of Q - 1 here, so it only gets a probabilistic test: the fixed bases
-    # above plus 40 random bases (a composite passes each random round with probability at most 1/4: error below 2^-80).
-    import secrets as _s
-    def rm_random(n, rounds=40):
-        d, s = n - 1, 0
-        while d % 2 == 0:
-            d //= 2
-            s += 1
-        for _ in range(rounds):
-            x = pow(_s.randbelow(n - 3) + 2, d, n)
-            if x in (1, n - 1):
-                continue
-            for _ in range(s - 1):
-                x = x * x % n
-                if x == n - 1:
-                    break
-            else:
-                return False
-        return True
-    check("Q passes 12 fixed and 40 random Miller-Rabin bases (probabilistic, no certificate)", is_prime(Q) and rm_random(Q))
+    check("p is prime: deterministic Pocklington certificate (p - 1 fully factored)", certify_prime(P, CERT_TABLE))
+    check("Q (the curve order) is prime: deterministic certificate, Q - 1 = 2*3*1481071*74436419*R with R a 202-bit prime "
+          "that has its own fully factored R - 1", certify_prime(Q, CERT_TABLE))
+    check("the 202-bit factor R is itself certified (not just Miller-Rabin)", certify_prime(R202, CERT_TABLE))
+    # the certificate is load-bearing: every condition has a crafted input that only that condition rejects
+    import math, copy
+    check("a wrong number with the same factor list is rejected (Q + 2)", not certify_prime(Q + 2, {Q + 2: CERT_TABLE[Q]}))
+    bad = copy.deepcopy(CERT_TABLE)
+    bad[Q] = [2, 3, 1481071, 74436419 + 2, R202]
+    check("a factor list whose product is not Q - 1 is rejected", not certify_prime(Q, bad))
+    bad = copy.deepcopy(CERT_TABLE)
+    del bad[R202]
+    check("without a certificate for the 202-bit factor the curve order is NOT certified", not certify_prime(Q, bad))
+    check("Carmichael 561 with its true factorisation of 560 has no witness for the factor 2", not certify_prime(561, {561: [2, 2, 2, 2, 5, 7]}))
+    comp = next(((n, m) for n in range(9, 2000, 2) if not _det_prime(n) and (n - 1) % 2 == 0
+                 for m in [(n - 1) // 2] if not _det_prime(m) and
+                 all(any(pow(a, n - 1, n) == 1 and math.gcd(pow(a, (n - 1) // q, n) - 1, n) == 1 for a in range(2, 300)) for q in (2, m))), None)
+    check("a composite 'factor' m with a passing witness is rejected because m is not prime", comp is not None and not certify_prime(comp[0], {comp[0]: [2, comp[1]]}))
+    def _fact(m):
+        out, p = [], 2
+        while p * p <= m:
+            while m % p == 0:
+                out.append(p)
+                m //= p
+            p += 1
+        return out + ([m] if m > 1 else [])
+
+    def _gcd_only(n_, q_):
+        return any(math.gcd(pow(a, (n_ - 1) // q_, n_) - 1, n_) == 1 for a in range(2, 300))
+
+    fer = next((n_ for n_ in range(9, 5000, 2) if not _det_prime(n_)
+                and all(_gcd_only(n_, q_) for q_ in set(_fact(n_ - 1)))), None)
+    check("a composite n whose factors of n - 1 all pass the gcd condition is rejected only by the Fermat condition",
+          fer is not None and not certify_prime(fer, {fer: _fact(fer - 1)}))
+    check("a prime n whose factor list is incomplete (97: [2, 3], product 6 != 96) is rejected", not certify_prime(97, {97: [2, 3]}))
+    check("the deterministic test refuses numbers above its proven range (Q)", not _det_prime(Q))
+    check("the deterministic test rejects strong pseudoprimes to the first bases (1373653 to bases 2, 3; 3215031751 to 2, 3, 5, 7)",
+          not _det_prime(1373653) and not _det_prime(3215031751))
+    check("a number with no table entry and too large for the deterministic test is rejected", not certify_prime(Q, {}))
+    check("a prime below the deterministic limit needs no entry (97)", certify_prime(97, {}))
     check("the Hasse interval holds: |Q - (p + 1)| <= 2 sqrt(p)", abs(Q - (P + 1)) ** 2 <= 4 * P)
     check("G is on the curve and Q*G is the identity", on_curve(G) and mul(Q, G) is None)
     check("H and D are on the curve and different from each other and from G",
