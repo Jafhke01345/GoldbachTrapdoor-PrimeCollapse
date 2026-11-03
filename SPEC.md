@@ -75,7 +75,7 @@ Commitment: `ComC(n, s) = n*G + s*H`, scalars reduced modulo `Q_C`. `D` is used 
 
 | Parameter | Assurance | Status |
 | --- | --- | --- |
-| `P`, `Q` (repository group) | random-base Miller-Rabin, 40 rounds, run at every import; a composite survives with probability at most `4^-40 = 2^-80`. Conditional step: if `Q` is prime then `P` is prime, by a Pocklington witness (`2` has `2^(P-1) = 1` and `gcd(2^2 - 1, P) = 1`, and `4Q^2 > P`), checked in `benchmark.py` | **Probabilistic** for `Q`; `P` follows from `Q` only through that witness |
+| `P`, `Q` (repository group) | random-base Miller-Rabin, 40 rounds, run at every import; a composite survives with probability at most `4^-40 = 2^-80`. Conditional step: if `Q` is prime then `P` is prime, by a Pocklington witness (`2` has `2^(P-1) = 1` and `gcd(2^2 - 1, P) = 1`, and `Q^2 > P`), checked in `benchmark.py` | **Probabilistic** for `Q`; `P` follows from `Q` only through that witness |
 | `p` (Stark field) | `p - 1 = 2^192 * 5 * 7 * 98714381 * 166848103`; each factor is prime (deterministic Miller-Rabin below 3.3e24); Pocklington witnesses checked in `stark_curve.py` | **Proven** (deterministic) |
 | `Q_C` (curve order) | 12 fixed plus 40 random Miller-Rabin bases | **Probabilistic**; fixed bases give no proven bound at 251 bits |
 
