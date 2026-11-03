@@ -189,6 +189,8 @@ below 2^241, which is smaller than half of both group orders, so nothing wraps. 
 midpoint proof, the range proofs, the two links and the two primality STARKs into one verifier. The curve,
 the ladder and the link are home-made, unreviewed constructions.
 
+`SPEC.md` is the protocol specification (parameter derivation, encodings, equations, the integer-bound argument for the link, assumptions) written so that a second verifier can be built without reading the Python.
+
 This project does not prove the Goldbach conjecture; the name is historical. It proves a statement about
 two hidden primes that average to a public `c`.
 

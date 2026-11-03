@@ -133,7 +133,37 @@ def _selftest():
                 return False
         return True
 
-    check("p and Q are prime", is_prime(P) and is_prime(Q))
+    # p: a deterministic proof (Pocklington). p - 1 = 2^192 * 5 * 7 * 98714381 * 166848103, every factor below 2^28
+    # (prime by Miller-Rabin with the first 13 prime bases, which is deterministic below 3.3e24), and for each factor q
+    # some base a has a^(p-1) = 1 and gcd(a^((p-1)/q) - 1, p) = 1. F = p - 1 > sqrt(p), so p is prime.
+    import math
+    factors = (2, 5, 7, 98714381, 166848103)
+    exps = {2: 192, 5: 1, 7: 1, 98714381: 1, 166848103: 1}
+    check("p - 1 factors completely as 2^192 * 5 * 7 * 98714381 * 166848103",
+          math.prod(q ** exps[q] for q in factors) == P - 1)
+    check("each factor of p - 1 is prime (deterministic Miller-Rabin below 3.3e24)", all(q in (2, 5, 7) or is_prime(q) for q in factors))   # 2, 5, 7 are prime by inspection
+    check("Pocklington witnesses: for every factor q some base a has a^(p-1) = 1 and gcd(a^((p-1)/q) - 1, p) = 1",
+          all(any(pow(a, P - 1, P) == 1 and math.gcd(pow(a, (P - 1) // q, P) - 1, P) == 1 for a in range(2, 60)) for q in factors))
+    # Q (the group order) has no known factorisation of Q - 1 here, so it only gets a probabilistic test: the fixed bases
+    # above plus 40 random bases (a composite passes each random round with probability at most 1/4: error below 2^-80).
+    import secrets as _s
+    def rm_random(n, rounds=40):
+        d, s = n - 1, 0
+        while d % 2 == 0:
+            d //= 2
+            s += 1
+        for _ in range(rounds):
+            x = pow(_s.randbelow(n - 3) + 2, d, n)
+            if x in (1, n - 1):
+                continue
+            for _ in range(s - 1):
+                x = x * x % n
+                if x == n - 1:
+                    break
+            else:
+                return False
+        return True
+    check("Q passes 12 fixed and 40 random Miller-Rabin bases (probabilistic, no certificate)", is_prime(Q) and rm_random(Q))
     check("the Hasse interval holds: |Q - (p + 1)| <= 2 sqrt(p)", abs(Q - (P + 1)) ** 2 <= 4 * P)
     check("G is on the curve and Q*G is the identity", on_curve(G) and mul(Q, G) is None)
     check("H and D are on the curve and different from each other and from G",
