@@ -239,7 +239,7 @@ is recomputed at each queried position from the Merkle-checked openings. (iii) F
 | Regime | Proximity radius `delta` | `-log2(1 - delta)` per query | 40 queries | Queries for 80 / 100 / 128 bits |
 | --- | --- | --- | --- | --- |
 | unique decoding (candidate proved bound; conditional on audit items) | `(1 - rho)/2 = 0.4375` | 0.83 | about 33 bits | 97 / 121 / 155 |
-| Johnson radius (proved only if the plain-FRI theorem of BCIKS section 8 gives this exponent: unchecked; the DEEP-FRI per-query floor `rho^(1/3)` would give 1.0 bit, 40 bits) | `1 - sqrt(rho) = 0.646` | 1.5 | about 60 bits | 54 / 67 / 86 |
+| conditional Johnson-radius estimate (depends on the unread plain-FRI theorem of BCIKS section 8; the DEEP-FRI per-query floor `rho^(1/3)` would give 1.0 bit, 40 bits) | `1 - sqrt(rho) = 0.646` | 1.5 | about 60 bits | 54 / 67 / 86 |
 | up to capacity (conjectured) | `1 - rho = 0.875` | 3 | about 120 bits | 27 / 34 / 43 |
 
 So what can be justified from known theorems for the current parameters is far below the conjectured 120 bits: about 33 bits in the
