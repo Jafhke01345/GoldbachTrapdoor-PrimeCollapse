@@ -68,7 +68,7 @@ Batching count (resolves the earlier 160/163/317 confusion): 160 committed oracl
 - BCIKS Thm 7.2 with `eta = sqrt(rho)/20 = 0.01768`, `delta = 0.6288`: per-query `-log2(1 - delta) = 1.430`, 40 queries: **57.2 bits**; `eps_C = 1024^2/((2 eta)^7 p) = 2^-197`.
   Smaller `eta` trades commit error for a larger `delta`: `eta = 0.010`: 1.460 bits/query, `eps_C = 2^-191.5`; `eta = 0.005`: 1.480, `2^-184.5`. The ceiling of the table is `1.5` bits/query (the SPEC's 60 bits) and is never reached since `eta > 0`.
 - Garreta Thm 5.2 with Lemma 2.4 (`m = 2`, `|L| <= 4096`): `eps_fold = 2^-226` at `theta = 0.4375`, `2^-219.6` at `theta = 0.6`, `2^-213.0` at `theta = 0.6288`; query term `(1 - theta)^40`.
-- Out-of-domain identity: `(4N + O(1))/(p - N - n0) ~ 2^-239`.
+- Out-of-domain identity: `(4N + O(1))/(p - N - n0 - 1) ~ 2^-239`.
 - Constraint combination: `1/p = 2^-251`.
 - Merkle (SHA-256 collisions, `Q_H` hashes): `Q_H^2 / 2^257`.
 
@@ -94,12 +94,14 @@ Let `V = RS[F, D, N]` (degree `< N`, `rho = 1/8`, `delta_U = (1 - rho)/2 = 0.437
 (`(T_c - tz_c)/(X - z)`, `(T_c - tgz_c)/(X - gz)`, `(cp_i - cz_i)/(X - z)`), all words on `D` fixed before the challenges `gamma` (step 5 precedes step 6;
 `z, gz notin D` by the `z` checks, since `g in <w>`). `F = sum_j gamma_j w_j`.
 
-(a) *Gap/normalization.* With `gamma_1 != 0` (probability `1 - 1/p`), `F/gamma_1` is uniform on the affine space `U = w_1 + span{w_2..w_317}`, and `Delta(F, V) = Delta(F/gamma_1, V)`.
-If `Pr_gamma[Delta(F, V) <= delta_U] > eps_U + 1/p` then `Pr_U[...] > eps_U`, and Thm 1.7 gives **one** set `D'`, `|D'| >= (1 - delta_U) n0 = 4608`, and `v_j in V` with `v_j = w_j` on `D'` for all 317 words.
+(a) *Gap/normalization.* Use `delta' = delta_U - 1/n0` (strictly inside the unique decoding radius; the reason is in (b)); `1 - delta'` differs from `1 - delta_U` by a relative `2^-12`, and the 40-query figure stays 33.2 bits. With `gamma_1 != 0` (probability `1 - 1/p`), `F/gamma_1` is uniform on the affine space `U = w_1 + span{w_2..w_317}` (in the notation of Thm 1.7, `u_0 = w_1` and `l = 316`; the error is independent of `l`, and dependence among the words does not matter since a uniform coefficient vector pushes forward to a uniform element of the image), and `Delta(F, V) = Delta(F/gamma_1, V)`.
+If `Pr_gamma[Delta(F, V) <= delta_U] > eps_U + 1/p` then `Pr_U[...] > eps_U`, and Thm 1.7 gives **one** set `D'`, `|D'| >= (1 - delta') n0 > 4608`, and `v_j in V` with `v_j = w_j` on `D'` for all 317 words.
 
-(b) *Claims are true evaluations.* On `D'`: `T_c = tz_c + (X - z) v_c = tgz_c + (X - gz) v'_c`. Both right-hand sides are polynomials of degree `<= N`; they agree on `|D'| = 4608 > N` points, so they are one polynomial `P_c`, with `P_c(z) = tz_c`, `P_c(gz) = tgz_c`, and `P_c = T_c` on `D'`. Same for `cp_i` with `R_i`. In unique decoding `P_c` is the unique codeword within `delta_U` of the committed word `T_c`, so `P_c, R_i` are determined by the roots, **before** `z` (and `P_c` before `alpha`).
+(b) *Claims are true evaluations.* The committed word `T_c` on `D` is an arbitrary vector of 8192 values; it is **not** assumed to be the evaluation of a polynomial (a reviewer suggested comparing with "the committed interpolation polynomial of degree `< N`"; that object exists only for an honest prover, so the argument below does not use it). Define `P_c := tz_c + (X - z) v_c` and `Q_c := tgz_c + (X - gz) v'_c`, where `v_c, v'_c in V` are the codewords of Thm 1.7 for the two quotient words of column `c`. Both have degree `<= N`, and by (a) both equal the word `T_c` on the **same** set `D'`, so `P_c(x) = T_c(x) = Q_c(x)` for all `x in D'`. They agree on `|D'| > 4608 > N` points, hence `P_c = Q_c` as polynomials, with `P_c(z) = tz_c` and `P_c(gz) = Q_c(gz) = tgz_c`. Thus **the claimed values are the evaluations of one polynomial `P_c` that coincides with the committed word on `D'`**. The same holds for `cp_i` with `R_i`. This is the statement used later; it is a statement about `P_c`, not about the word.
 
-(c) *Algebra.* The identity at `z` for the polynomials `P, R` holds only with probability `<= (4N + O(1))/(p - N - n0)` unless `CP_P = sum X^(Ni) R_i` as rational functions (degree bound re-derived for degree `<= N` is `4N + O(1)`, same order). Then, with `alpha` drawn after `root_t`, all transition constraints and boundary conditions hold for the `P_c` on the rows, except with probability `1/p`. So `P_c` is a valid trace, i.e. an extractable witness for the statement, up to the 82 padding rows.
+   *`P_c` is fixed by the roots.* The step "extraction is done before `z`" needs `P_c` not to depend on `gamma` or `z`. Any other polynomial `P'` of degree `<= N` that also agrees with the word `T_c` on a set of density `>= 1 - delta'` coincides with `P_c`: the two agreement sets overlap in at least `n0 (1 - 2 delta') = 1026 > N` points. This is where the strict `delta' < delta_U` is used (at `delta_U` the overlap is exactly `N = 1024`, which does not force equality for degree `<= N`). So `P_c, R_i` are functions of the committed words alone, hence fixed by `root_t`, `root_c` (given Merkle binding), before `alpha` (for `P_c`) and `z`.
+
+(c) *Algebra.* (Excluded values of `z`: `0`, the `N` points of `H`, the `n0` points of `D`; hence the denominator `p - N - n0 - 1`. Field challenges are reduced from 768 bits mod `p`, bias at most `p/2^768 ~ 2^-517` per challenge, to be added in a full bound.) The violation row below is chosen in the trace committed by `root_t`, before `alpha` is drawn. The identity at `z` for the polynomials `P, R` holds only with probability `<= (4N + O(1))/(p - N - n0 - 1)` unless `CP_P = sum X^(Ni) R_i` as rational functions (degree bound re-derived for degree `<= N` is `4N + O(1)`, same order). Then, with `alpha` drawn after `root_t`, all transition constraints and boundary conditions hold for the `P_c` on the rows, except with probability `1/p`. So `P_c` is a valid trace, i.e. an extractable witness for the statement, up to the 82 padding rows.
 
 (d) *Otherwise F is far.* If `Pr_gamma[Delta(F, V) <= delta_U] <= eps_U + 1/p`, then with probability `>= 1 - eps_U - 1/p`, `F` is `delta_U`-far from `V`, and FRI (Thm 7.2, with `delta = delta_U`) accepts with probability `<= eps_C + (1 - delta_U)^t`.
 
@@ -118,7 +120,7 @@ the argument uses that `FRI` tests degree `< N` while honest `F` has degree `<= 
   RBR => Fiat-Shamir in the ROM ([CCH+19, Hol19]; not read).
 - The ordinary-soundness route of BCS16 (state-restoration, `ssr <= C(b, k+1) s`, reconstructed) gives `~2^524` at `Q_H = 2^40` and is vacuous: the `log2(Q_H)` form really does need RBR.
 - The transcript absorbs the statement hash first; this prevents reuse across statements but gives no extra grinding bits. Prover-side grinding of `b` bits is not implemented; if added it would add `b` bits against an adversary counted in hash evaluations.
-- Query indices (checked in `stark_core.Transcript.index`): `j0 = int(SHA256(state || "i")) mod (n0/2)` with `n0/2 = 4096`, a power of two, so each index is exactly uniform given the hash output (no modulo bias); the state is updated per index, so the 40 indices are successive hash outputs of one chain after the final polynomial has been absorbed. Field challenges use 768 bits mod `p` (bias about `2^-517`). The theorems assume independent uniform indices; successive outputs of a random oracle on distinct inputs behave that way, but the chain structure (index `i+1` depends on index `i`'s state) is a formal difference I have not analyzed.
+- Query indices (`stark_core.Transcript.index`): `h <- SHA256(h || "i")`, `j0 = int(h) mod 4096`, so `j0` is exactly uniform given a uniform digest (4096 is a power of two). In the random-oracle model, index `i` is the output of the oracle on the previous digest (distinct inputs unless a state repeats, probability `<= Q_H^2/2^256`), so the 40 indices are independent uniform, matching the independent `s_j <- L_0` assumed by BCIKS Thm 7.2 and Garreta Constr. 4.4, **conditional on the model**. The chain is therefore not an obstacle; what remains is the formal write-up inside the RBR query-round state function, and note that each grinding attempt costs about 40 oracle calls (this only helps against the adversary and is not counted). Field challenges: 768 bits mod `p` (bias `2^-517`).
 
 ## 7. Corrected combined calculation (conditional arithmetic, not a bound)
 
@@ -144,7 +146,7 @@ Garreta Thm 5.2 (RBR soundness of FRI for an oracle `f_0`, given MCA for Powers,
 **Derived by me, unreviewed:** section 5 (one DEEP step plus FRI, unique decoding); the RBR state-function sketch for the outer rounds; the numbers in sections 3, 4, 7.
 
 **Conditional / open:** RBR gluing for the full protocol with lazily computed `f_0`; formal RBR => FS theorem (CCH+19/Hol19, unread); MCA for Powers (Lemma 2.4 is quoted from [BCH+25], unread);
-a list-decoding DEEP/ALI step for any `delta > delta_U`; the formal treatment of the chained index derivation (uniformity itself is fine, see section 6).
+a list-decoding DEEP/ALI step for any `delta > delta_U`; writing the chained index derivation into the query-round state function (uniform and, in the random-oracle model, independent: see section 6).
 
 **Conjectural:** any exponent above the Johnson radius (the 3 bits/query, 120-bit row; BCIKS Conjecture 7.3 is the relevant statement for the FRI part).
 
@@ -153,7 +155,7 @@ a list-decoding DEEP/ALI step for any `delta > delta_U`; the formal treatment of
 ## 9. Edits made to SPEC.md 3.4 (docs only) and still recommended
 
 Made: `|F| ~ 2^251`, OOD `2^-239`; DEEP bullet references this audit and the 317-term/160-oracle distinction; Fiat-Shamir bullet made conditional; Johnson row relabelled "conditional"; 160-query target removed.
-Done in this revision: BCIKS theorem number corrected (7.2); Johnson row now cites that Thm 7.2 gives 57.2 bits for FRI alone, whole-protocol exponent stays 0.83 until a list-decoding DEEP step exists.
+Done in revision 2: BCIKS theorem number corrected (7.2); Johnson row now cites that Thm 7.2 gives 57.2 bits for FRI alone, whole-protocol exponent stays 0.83 until a list-decoding DEEP step exists.
 Still to do: a reviewer should check section 5 line by line; the RBR gluing and the index derivation need proofs or tests before any figure is called a bound.
 
 ## 10. Open questions for a reviewer
@@ -162,4 +164,4 @@ Still to do: a reviewer should check section 5 line by line; the RBR gluing and 
 2. Does a state function exist for the whole protocol with lazily computed `f_0` and the stated per-round errors (Garreta Thm 5.2 is for an oracle `f_0`; Appendix A covers batched FRI by powers, not independent coefficients)?
 3. Which list-decoding DEEP/ALI statement (BGKS Lemma 5.3, Haboeck 2022/1216, ethSTARK) covers `delta > delta_U` with 160 columns and two out-of-domain points, and what is its list-size term?
 4. Does the exact Garreta Lemma 2.4 / [BCH+25] MCA error apply with `m = 2` and `|L|` equal to the current layer size? (I used `|L| <= 4096`.)
-5. Is the chained derivation of the 40 query indices (uniform per index, but not 40 independent hash calls) covered by the RBR query-round state function?
+5. Is the random-oracle argument for the chained query indices (section 6) accepted as covering the independent-index assumption of Thm 7.2 / Thm 5.2?

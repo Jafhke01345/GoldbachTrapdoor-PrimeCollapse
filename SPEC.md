@@ -171,10 +171,11 @@ self-test must reject each. The verifier's own checks were removed one at a time
 
 ### 3.4 Soundness and zero-knowledge argument (follows stark_core.py; unreviewed)
 
-This is my reading of the code and of the literature, written so that a reviewer can check it line by line. The exact theorem
-statements for the DEEP and FRI steps (Ben-Sasson, Kopparty and Saraf; Ben-Sasson, Carmon, Ishai, Kopparty and Saraf on proximity
-gaps) were not re-derived or looked up here; they must be checked against the cited versions. Nothing below is a proof of the
-whole protocol.
+This is my reading of the code and of the literature, written so that a reviewer can check it line by line. The statements of the theorems used
+(Ben-Sasson, Carmon, Ishai, Kopparty and Saraf on proximity gaps, Theorems 1.7 and 7.2; Garreta, Mohnblatt and Wagner on round-by-round
+soundness of FRI, Theorem 5.2) have been read in the cited versions; their proofs, the composition of one DEEP step with FRI
+(`AUDIT_FRI_SOUNDNESS.md` section 5, unique decoding only) and the whole-protocol round-by-round Fiat-Shamir argument have not been independently
+checked. Nothing below is a proof of the whole protocol.
 
 **Objects.** `N` is the trace length (a power of two, at least `real_rows + 82`; for the 64-bit profile `real_rows = 824`, `N = 1024`).
 `H = <g>` is the multiplicative group of order `N`. The evaluation domain is `D = COSET * <w>`, `|D| = n0 = 8N`, with `COSET = 3`.
@@ -218,9 +219,9 @@ is recomputed at each queried position from the Merkle-checked openings. (iii) F
   probability `1/|F|` over the `alpha`s. Otherwise `CP` has a pole and is not a polynomial. Error `<= 1/|F|`.
 - *Out-of-domain identity.* If `CP` is not a polynomial and the pieces `cp_i` have degree `< N`, then `CP(X) - sum_i X^(N i) cp_i(X)` is a
   nonzero rational function; multiplying by `X^N - 1` gives a nonzero polynomial of degree at most `4N - 1`, so the identity of check (i)
-  holds at the random `z` (chosen after `root_c`) with probability at most `(4N - 1) / (|F| - N - n0)`, about `2^-239` for `N = 1024`.
+  holds at the random `z` (chosen after `root_c`) with probability at most `(4N - 1) / (|F| - N - n0 - 1)`, about `2^-239` for `N = 1024`.
   This step is stated for the true values `T_c(z)`, `cp_i(z)` of the committed polynomials; the next step ties the claimed values to them.
-- *DEEP and low degree.* (This bullet is a summary; `AUDIT_FRI_SOUNDNESS.md` section 5 lists what must be separated: the batching gap (317 DEEP terms over 160 committed oracles; what the theorem's batching parameter counts is open), the DEEP out-of-domain step with its list-size term, and plain-FRI terms. The implementation is one DEEP step followed by plain
+- *DEEP and low degree.* (This bullet is a summary. BCIKS Theorem 1.7 has an error independent of the number of DEEP terms (317 terms over 160 committed oracles), so batching adds no factor; `AUDIT_FRI_SOUNDNESS.md` section 5 derives the DEEP step and the FRI step for the unique-decoding regime only; beyond it a list-decoding DEEP lemma would be needed. The implementation is one DEEP step followed by plain
   FRI, not the per-round DEEP of DEEP-FRI Protocol 5.4, so DEEP-FRI Theorem 5.5 does not apply as stated.) If the claimed values `tz`, `tgz`, `cz` are not the true evaluations of low-degree polynomials that the Merkle
   commitments are close to, or the committed words are far from degree `< N`, then for random `gamma`, `gamma2`, `delta` the function
   `F` is far from the Reed-Solomon code of degree `< N - 1` on `D`, except with the probability of the proximity-gap theorem
