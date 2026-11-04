@@ -68,7 +68,7 @@ Batching count (resolves the earlier 160/163/317 confusion): 160 committed oracl
 - BCIKS Thm 7.2 with `eta = sqrt(rho)/20 = 0.01768`, `delta = 0.6288`: per-query `-log2(1 - delta) = 1.430`, 40 queries: **57.2 bits**; `eps_C = 1024^2/((2 eta)^7 p) = 2^-197`.
   Smaller `eta` trades commit error for a larger `delta`: `eta = 0.010`: 1.460 bits/query, `eps_C = 2^-191.5`; `eta = 0.005`: 1.480, `2^-184.5`. The ceiling of the table is `1.5` bits/query (the SPEC's 60 bits) and is never reached since `eta > 0`.
 - Garreta Thm 5.2 with Lemma 2.4 (`m = 2`, `|L| <= 4096`): `eps_fold = 2^-226` at `theta = 0.4375`, `2^-219.6` at `theta = 0.6`, `2^-213.0` at `theta = 0.6288`; query term `(1 - theta)^40`.
-- Out-of-domain identity: `(4N + O(1))/(p - N - n0 - 1) ~ 2^-239`.
+- Out-of-domain identity: `4N/(p - N - n0 - 1) ~ 2^-239`.
 - Constraint combination: `1/p = 2^-251`.
 - Merkle (SHA-256 collisions, `Q_H` hashes): `Q_H^2 / 2^257`.
 
@@ -101,11 +101,11 @@ If `Pr_gamma[Delta(F, V) <= delta'] > eps_U + 1/p` (the event is at `delta'`, no
 
    *`P_c` is fixed by the roots.* The step "extraction is done before `z`" needs `P_c` not to depend on `gamma` or `z`. Any other polynomial `P'` of degree `<= N` that also agrees with the word `T_c` on a set of density `>= 1 - delta'` coincides with `P_c`: the two agreement sets overlap in at least `n0 (1 - 2 delta') = 1026 > N` points. This is where the strict `delta' < delta_U` is used (at `delta_U` the overlap is exactly `N = 1024`, which does not force equality for degree `<= N`). So `P_c, R_i` are functions of the committed words alone (given Merkle binding). Timing: the `P_c` are fixed by `root_t`, before `alpha`; the `R_i` are fixed by `root_c`, which is sent after `alpha` but before `z`.
 
-(c) *Algebra.* (Excluded values of `z`: `0`, the `N` points of `H`, the `n0` points of `D`; hence the denominator `p - N - n0 - 1`. Field challenges are reduced from 768 bits mod `p`, bias at most `p/2^768 ~ 2^-517` per challenge, to be added in a full bound.) The violation row below is chosen in the trace committed by `root_t`, before `alpha` is drawn. The identity at `z` for the polynomials `P, R` holds only with probability `<= (4N + O(1))/(p - N - n0 - 1)` unless `CP_P = sum X^(Ni) R_i` as rational functions (degree bound re-derived for degree `<= N` is `4N + O(1)`, same order). Then, with `alpha` drawn after `root_t`, all transition constraints and boundary conditions hold for the `P_c` on the rows, except with probability `1/p`. So `P_c` is a valid trace, i.e. an extractable witness for the statement, up to the 82 padding rows.
+(c) *Algebra.* (Excluded values of `z`: `0`, the `N` points of `H`, the `n0` points of `D`; hence the denominator `p - N - n0 - 1`. Field challenges are reduced from 768 bits mod `p`, bias at most `p/2^768 ~ 2^-517` per challenge, to be added in a full bound.) The violation row below is chosen in the trace committed by `root_t`, before `alpha` is drawn. The identity at `z` for the polynomials `P, R` holds only with probability `<= 4N/(p - N - n0 - 1)` unless `CP_P = sum X^(Ni) R_i` as rational functions (degree bound re-derived for degree `<= N` is `4N`, same order). Then, with `alpha` drawn after `root_t`, all transition constraints and boundary conditions hold for the `P_c` on the rows, except with probability `1/p`. So `P_c` is a valid trace, i.e. an extractable witness for the statement, up to the 82 padding rows.
 
 (d) *Otherwise F is far.* If `Pr_gamma[Delta(F, V) <= delta'] <= eps_U + 1/p`, then with probability `>= 1 - eps_U - 1/p`, `F` is `delta'`-far from `V`, and FRI (Thm 7.2, with `delta = delta'`) accepts with probability `<= eps_C + (1 - delta')^t`. Numerically `-40 log2(1 - delta') = 33.187` bits versus `33.200` at `delta_U`.
 
-Single-attempt (interactive) error, unique decoding: `eps <= 1/p + (4N+O(1))/(p-N-n0-1) + (n0 + 1)/p + eps_C + (1 - delta')^40 + Merkle = 2^-33.19 (1 + tiny)`.
+Single-attempt (interactive) error, unique decoding: `eps <= 1/p + 4N/(p-N-n0-1) + (n0 + 1)/p + eps_C + (1 - delta')^40 + Merkle = 2^-33.19 (1 + tiny)`.
 
 Caveats (what this argument does not cover): (i) it extracts a trace, not full knowledge soundness; (ii) it concerns the interactive protocol with Merkle binding assumed; (iii)
 the argument uses that `FRI` tests degree `< N` while honest `F` has degree `<= N - 2`, which is fine for soundness (a larger code only weakens the checked statement, and (a)-(b) were done for the larger code); (iv) for `delta > delta_U` step (b) fails because `P_c` is not determined by the roots (the number of possible agreement sets multiplies the OOD error by a list-size factor that is not small enough across 160 columns), so the Johnson regime needs a different tool.
@@ -114,7 +114,7 @@ the argument uses that `FRI` tests degree `< N` while honest `F` has degree `<= 
 
 - Garreta Thm 5.2 gives round-by-round (RBR) soundness for **FRI alone**, with `eps_i^fold ~ 2^-226` (per folding round, `m = 2`) and `eps^qry = (1 - min{theta, delta})^t`. [read]
 - The outer rounds of this protocol (alpha, z, gamma) need their own RBR state function. **[derived, sketch only]** the natural one: state `1` after alpha iff the committed trace has no violated
-  constraint-or-the combination vanishes (error `1/p`); after `z` iff the extracted `R_i` match (error `(4N+O(1))/(p-N-n0-1)`); after `gamma` iff `F` is `delta'`-close to `V` (error `eps_U + 1/p`);
+  constraint-or-the combination vanishes (error `1/p`); after `z` iff the extracted `R_i` match (error `4N/(p-N-n0-1)`); after `gamma` iff `F` is `delta'`-close to `V` (error `eps_U + 1/p`);
   then Garreta's folding and query states. The gluing of these state functions with Garreta's `State_theta` (which is defined for an oracle `f_0`, not for a function computed from two Merkle trees whose values are opened lazily) has **not** been proved or checked.
 - If it holds, the informal Section 3.2 remark gives: success probability `<= sum_i Q_i eps_i <= Q_H max_i eps_i`, with `max_i eps_i = (1 - delta')^40 = 2^-33.19` for 40 queries, i.e. **about 33.2 - log2(Q_H) bits**. The SPEC's `log2(Q_H)` formula is therefore correct **conditional on** this RBR gluing and on the formal theorem
   RBR => Fiat-Shamir in the ROM ([CCH+19, Hol19]; not read).
@@ -159,7 +159,7 @@ Verifier rounds and their lucky-event errors (state starts 0 for a false stateme
 | Round | State becomes 1 iff | Error | Source |
 | --- | --- | --- | --- |
 | `alpha` | the `delta'`-close polynomials `P_c` of `root_t` exist, violate a constraint or boundary, yet all residues of `CP_P` cancel | `1/p` | linear form in `alpha` (SPEC 3.4) |
-| `z` | `P_c`, `R_i` exist and `CP_P != sum X^(Ni) R_i` as rational functions but the identity holds at `z` | `(4N + O(1))/(p - N - n0 - 1)` | Schwartz-Zippel |
+| `z` | `P_c`, `R_i` exist and `CP_P != sum X^(Ni) R_i` as rational functions but the identity holds at `z` | `4N/(p - N - n0 - 1)` | Schwartz-Zippel |
 | `gamma` | `F` is `delta'`-close to `V` although `P`, `R` fail to exist or a claim is not the evaluation of them | `eps_U + 1/p` | BCIKS Thm 1.7 plus 5(a)-(b) |
 | `beta_l`, `l = 1..7` | Garreta's `State_theta`, `theta = delta'`, `f_0 = F` (only entered when `F` is `delta'`-far) | `eps_mca(C_l, 2, delta') ~ 2^-226` | Garreta Thm 5.2, Lemma 2.4 |
 | query | all `s_j in AccQueries` while `F` is `delta'`-far | `(1 - delta')^40` | Garreta Thm 5.2 |
@@ -167,7 +167,7 @@ Verifier rounds and their lucky-event errors (state starts 0 for a false stateme
 Why the pieces should fit: (1) if `F` is `delta'`-close and the `gamma` flip did not occur, then `P`, `R` exist and the claims are the true evaluations; the verifier's identity check at `z` then fails unless the `z` or `alpha` flip occurred, so a state-0 transcript is rejected; (2) if `F` is `delta'`-far, Garreta's state governs and a state-0 full transcript is rejected by Garreta's theorem.
 Each flip depends only on the transcript up to the verifier's message (claims precede `gamma`), so "prover moves" does not change the state.
 
-**Not proved.** (a) That the three outer definitions satisfy all four properties of Definition 3.4 simultaneously (empty transcript, prover moves, full transcript, default) with the stated errors; I have only checked the intended behavior above. (b) That Garreta's `State_theta` can be started at the `gamma` round from an arbitrary `F` that is `delta'`-far (his state function starts with `State(f_0, empty) = 1` iff `f_0 in C_0`, defined at the beginning of the protocol); the hand-over uses only that the folding and query states are defined for any fixed `f_0`.
+**Not proved.** (a), (b) These two items (the four properties of Definition 3.4 and the hand-over to `State_theta`) are now addressed by section 6B, as a derivation that nobody but me has read.
 (c) The formal theorem RBR => Fiat-Shamir in the ROM ([CCH+19, Hol19], unread) and the BCS16-style extraction of the oracles. (d) Zero knowledge is unaffected by this section.
 
 Status table:
@@ -178,8 +178,44 @@ Status table:
 | Every accepted opening evaluates that same `F`, except on a binding failure | derived, conditional on Merkle binding |
 | The verifier's query/acceptance predicate equals Garreta's `AccQueries` predicate | checked by reading code, table above |
 | Garreta's query-round bound applies to this predicate | follows from Thm 5.2 as stated, given the previous row (proof not checked) |
-| The outer state function composes with Garreta's `State_theta` (Definition 3.4) | **open** (sketch above) |
+| The outer state function composes with Garreta's `State_theta` (Definition 3.4) | derived in 6B, unreviewed |
 | Formal RBR => Fiat-Shamir, and extraction from Merkle trees | **open** (sources unread) |
+
+### 6B. Outer state function, defined round by round, and the four properties of Garreta Definition 3.4 (derived; unreviewed)
+
+Setting: the interactive IOP obtained from the protocol, statement `S` = "the AIR has a valid trace for this public input" (the link from this statement to "n is prime and committed in C" is the circuit lemma of section 3.3 of SPEC.md and is not part of this audit). Only statements with `S` false matter; for `S` true set `State = 1` everywhere.
+Messages in order: `T` (root_t, the word on `D`), `alpha`, `C` (root_c), `z`, claims `(tz, tgz, cz)`, `gamma`, `beta_1`, `f_1`, ..., `beta_6`, `f_6`, `beta_7`, `final`, query indices `(j_1..j_40)`. Malformed prover messages (wrong length or domain) make the verifier reject and are treated as outside the message space.
+
+**Candidate polynomials (prefix-determined, unique).** Let `delta' = 0.4375 - 1/8192`. For a word `X` on `D`, let `Cand(X)` be the set of polynomials of degree `<= N` agreeing with `X` on at least `n0 (1 - delta')` points. Two distinct members would agree with each other on at least `n0 (1 - 2 delta') = 1026 > N` points, impossible, so `|Cand(X)| <= 1`.
+`P_c := Cand(T_c)` and `R_i := Cand(C_i)` (columns of `T`, pieces of `C`), each possibly undefined (`bottom`). They depend on the word alone, hence `P` is determined by the transcript at `T`, before `alpha`, and `R` at `C`, before `z`; no later message is used.
+`Valid(P)`: the polynomials `P_c` satisfy every transition constraint on every active row and every boundary condition. Since `S` is false, `Valid(P)` fails for **every** family `P` (a valid family of any degree `<= N` is a witness trace). `Defined_T` (all `P_c` defined), `Defined_C` likewise.
+`Q_alpha := A(X) sum_i alpha_i C_i(P, P(gX), pub) / (X^N - 1) + sum_b alpha_(m+b) (P_(c_b) - v_b)/(X - g^(r_b))`, a rational function.
+`Delta := Q_alpha - sum_i X^(Ni) R_i`.
+`Consistent` := `Defined_T` and `Defined_C` and `tz_c = P_c(z)`, `tgz_c = P_c(gz)`, `cz_i = R_i(z)` for all `c, i`.
+`F` is the virtual oracle of 6A and `V = RS[F, D, N]` (degree `< N`).
+
+**State function** (starts at 0 and, once 1, stays 1 by definition; a prover message never changes it):
+1. `State(empty) = 0` (`S` false).
+2. After `alpha`: becomes 1 iff `Defined_T` and `Q_alpha` has no pole. Error: `Defined_T` and `S` false give an active row `r` where some constraint or boundary fails; the residue of `Q_alpha` at `g^r` is a linear form in `alpha` with at least one nonzero coefficient, so `Pr_alpha[no pole] <= 1/p`. **`eps_alpha = 1/p`.**
+3. After `z`: becomes 1 iff `Defined_T`, `Defined_C`, `Delta != 0` and `Delta(z) = 0`. Error: if the state was 0, `Defined_T` and `S` false force a pole of `Q_alpha`, so `Delta != 0`; `(X^N - 1) Delta` is a nonzero polynomial of degree `<= 4N` (numerator of the transition term `<= 4N - 1`; boundary terms `<= 2N - 1`; `X^(Ni) R_i (X^N - 1)` has degree `<= 4N` because `deg R_i <= N`), and `z` is uniform on `Z = F \ ({0} + H + D)`, `|Z| >= p - N - n0 - 1`. **`eps_z = 4N/(p - N - n0 - 1)`.** (Earlier text wrote `4N`; the count above gives `4N`.)
+4. After `gamma`: becomes 1 iff `F` is `delta'`-close to `V` and not `Consistent`. Error: if not `Consistent`, then `Pr_gamma[Delta(F, V) <= delta'] <= eps_U + 1/p`, since otherwise 5(a)-(b) give `Consistent` (they show that `T_c` and `C_i` have candidate polynomials in `Cand(.)` and that the claims are their evaluations; here `Cand` membership holds because the extracted polynomial agrees with the word on `D'`, `|D'| >= n0 (1 - delta')`). The words `w_j` depend on `T, C, z`, claims only (all before `gamma`). **`eps_gamma = n0/p + 1/p`.**
+5. After `beta_1..beta_7` and the query round: if `F` is `delta'`-close, no flips (error 0). If `F` is `delta'`-far, use Garreta's `State_theta` with `theta = delta'` and `f_0 = F` on the suffix `(beta_1, f_1, ..., beta_7, final, queries)`. Then `eps_(beta_l) = eps_mca(C_l, 2, delta')`, about `2^-226` (Lemma 2.4), and `eps_query = (1 - min{delta', Delta(F, C_0)})^40 = (1 - delta')^40`.
+   The branch (`F` close or far) is decided by the prefix up to `gamma`, so each flip depends only on the transcript at that verifier message.
+
+**The four properties (Definition 3.4), checked for `S` false.**
+- *Empty transcript:* `State(empty) = 0` for `S` false, `1` for `S` true. Holds by definition.
+- *Prover moves:* the state is only updated at verifier messages (items 2-5); a prover message leaves it unchanged. In the far branch the Garreta state satisfies the same property for the folded oracles `f_l` and `final` (his Definition 3.4). Holds.
+- *Default:* flips are 0 to 1 only; Garreta's state has the same property; once 1 the state is 1 on every extension. Holds.
+- *Full transcript:* take a full transcript with state 0. (a) `F` `delta'`-far: Garreta's full-transcript property for `State_theta(F, .)` gives that his verifier rejects; our verifier applies the same fold, final-degree and query checks (table in 6A) plus further checks, so it rejects. (b) `F` `delta'`-close: the `gamma` flip did not occur, so `Consistent`; then the verifier's left side equals `Q_alpha(z)` (it substitutes `tz = P(z)`, etc.) and its right side equals `sum z^(Ni) R_i(z)`; the identity holds iff `Delta(z) = 0`. State 0 at `alpha` with `Defined_T` and `S` false gives `Delta != 0`, and State 0 at `z` gives `Delta(z) != 0` (if `Delta(z) = 0` the `z` flip would have occurred). So the identity check fails and the verifier rejects. Holds.
+
+**Hand-over to Garreta.** Garreta's `State_theta(f_0, empty) = 1` iff `f_0 in C_0`. In the far branch `F` is `delta'`-far, hence not a codeword, so the initial state is 0, as his analysis requires. The hypotheses he needs are only that `f_0` is a fixed function before `beta_1` (true, 6A) and `theta` is a free parameter. The near branch never enters his state function.
+
+**Result (derived).** The protocol has round-by-round soundness for `S` false with the error list `1/p`, `4N/(p - N - n0 - 1)`, `(n0 + 1)/p`, `eps_mca ~ 2^-226` (seven rounds), `(1 - delta')^40`. Maximum: `(1 - delta')^40 = 2^-33.19`. Everything else is below `2^-185`.
+
+**Assumptions used.** BCIKS Thm 1.7 (UD) as stated; Garreta Thm 5.2 including his Lemma 5.1 (applies to every fixed prefix) and the MCA error of Lemma 2.4 (quoted from [BCH+25], unread); the random-oracle model for Merkle binding.
+
+**Not shown here.** (1) The formal theorem that RBR soundness of an IOP gives soundness of its BCS-compiled, Merkle-tree based Fiat-Shamir argument with loss `sum Q_i eps_i`, including extraction of the oracles from the trees (the sources are not read: BCS16 in typeset form, CCH+19, Hol19). (2) That `eps_mca` of Lemma 2.4 applies with the exact layer sizes. (3) Independent review of the proofs of the theorems used. (4) The link from `S` to primality. (5) Zero knowledge.
+A Lean formalization of Garreta's proof is mentioned by the authors (Hirai); I have not read it. It could be used to check the hand-over assumptions of this section.
 
 ## 7. Corrected combined calculation (conditional arithmetic, not a bound)
 
@@ -205,7 +241,7 @@ Garreta Thm 5.2 (RBR soundness of FRI for an oracle `f_0`, given MCA for Powers,
 **Derived by me, unreviewed:** section 5 (one DEEP step plus FRI, unique decoding); the RBR state-function sketch for the outer rounds; the numbers in sections 3, 4, 7.
 
 **Conditional / open:** RBR gluing for the full protocol with lazily computed `f_0`; formal RBR => FS theorem (CCH+19/Hol19, unread); MCA for Powers (Lemma 2.4 is quoted from [BCH+25], unread);
-a list-decoding DEEP/ALI step for any `delta > delta_U`; the Definition 3.4 check of the outer state function (section 6A); writing the chained index derivation into the query-round state function (uniform and, in the random-oracle model, independent: see section 6).
+a list-decoding DEEP/ALI step for any `delta > delta_U`; review of the outer state function and its Definition 3.4 check (section 6B); writing the chained index derivation into the query-round state function (uniform and, in the random-oracle model, independent: see section 6).
 
 **Conjectural:** any exponent above the Johnson radius (the 3 bits/query, 120-bit row; BCIKS Conjecture 7.3 is the relevant statement for the FRI part).
 
