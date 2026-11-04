@@ -122,7 +122,7 @@ the argument uses that `FRI` tests degree `< N` while honest `F` has degree `<= 
 - The transcript absorbs the statement hash first; this prevents reuse across statements but gives no extra grinding bits. Prover-side grinding of `b` bits is not implemented; if added it would add `b` bits against an adversary counted in hash evaluations.
 - Query indices (`stark_core.Transcript.index`): `h <- SHA256(h || "i")`, `j0 = int(h) mod 4096`, so `j0` is exactly uniform given a uniform digest (4096 is a power of two). In the random-oracle model, index `i` is the output of the oracle on the previous digest (distinct inputs unless a state repeats, probability `<= Q_H^2/2^256`), so the 40 indices are independent uniform, matching the independent `s_j <- L_0` assumed by BCIKS Thm 7.2 and Garreta Constr. 4.4, **conditional on the model**. The chain is therefore not an obstacle; what remains is the formal write-up inside the RBR query-round state function, and note that each grinding attempt costs about 40 oracle calls (this only helps against the adversary and is not counted). Field challenges: 768 bits mod `p` (bias `2^-517`).
 
-### 6A. Virtual oracle `F` and the Garreta query round (derived; the state-function gluing below is a sketch, not a proof)
+### 6A. Virtual oracle `F` and the Garreta query round (derived; the outer state function is developed in 6B)
 
 **What Garreta's query analysis depends on.** In Thm 5.2 the query-round probability is `(|AccQueries|/|L_0|)^t` (their equation (9)) where
 `AccQueries = { z in L_0 : for all i, Fold(f_{i-1}, m_i, alpha_i)(z^(i)) = f_i(z^(i)) }` for the **fixed** functions `f_0, ..., f_k` and challenges `alpha_i`.
@@ -221,7 +221,7 @@ A Lean formalization of Garreta's proof is mentioned by the authors (Hirai); I h
 
 1. **`alpha` residue (6B item 2).** `X^N - 1` is squarefree, so `Q_alpha` is a polynomial iff all its residues at the points of `H` vanish. At a point `g^r` the residue is
    `L_r(alpha) = [r active] * sum_i alpha_i c_i(r) g^r/N + sum_(b: r_b = r) alpha_(m+b) e_b`, with `c_i(r) = C_i` evaluated on the rows of `P` and `e_b = P_(c_b)(g^(r_b)) - v_b`.
-   Each `alpha_j` appears in exactly one summand (transition and boundary terms use disjoint variable indices), so `L_r` is the zero form iff every `c_i(r)` (on an active row) and every `e_b` (for `r_b = r`) vanishes. An invalid `P` has at least one violated active-row constraint or boundary, hence some `L_r` is a nonzero linear form, and a transition and a boundary violation at the same row cannot cancel. `alpha` is uniform and independent of `P` (fixed by `T`), so `Pr[L_r = 0] = 1/p`. Checked.
+   Each `alpha_j` appears in exactly one summand (transition and boundary terms use disjoint variable indices), so `L_r` is the zero form iff every `c_i(r)` (on an active row) and every `e_b` (for `r_b = r`) vanishes. An invalid `P` has at least one violated active-row constraint or boundary, hence some `L_r` is a nonzero linear form, and a transition and a boundary violation at the same row cannot cancel. `alpha` is uniform and independent of `P` (fixed by `T`), so `Pr[L_r = 0] = 1/p` for that row, and the probability that all residues vanish is at most `1/p`. Checked.
 2. **`z` identity (6B item 3).** If the state is 0 after `alpha` and `Defined_T` holds, `Q_alpha` has a pole; `sum X^(Ni) R_i` is a polynomial; hence `Delta` has a pole and `Delta != 0`, so `(X^N - 1) Delta` is a nonzero polynomial of degree `<= 4N`. For `z in Z` (so `z^N != 1`), `Delta(z) = 0` iff that polynomial vanishes at `z`: at most `4N` values. Checked.
 3. **Lemma 5.1 and the fixed prefix.** Garreta's Lemma 5.1 is stated "for every function `f: L -> F` and every `gamma`"; the probability is over the single challenge `r` only, with `f` any fixed function, `d >= m`, `C_0 = RS[F, L, d]`, `C_1 = RS[F, L^m, d/m]`, both of rate `rho`, `L` a coset with `m | |L|`. In Thm 5.2 it is applied with `f = f_(i-1)` fixed by the prefix, `m = m_i`, and the error is `eps_mca(C_i, m_i, theta)`. In this protocol: `m = 2`, `d` runs over `1024, 512, ..., 16` (all `>= 2`), cosets `L_(i-1)` of size `8192/2^(i-1)`, rate `1/8` at every layer, so the hypotheses hold for every fold. Because the statement is for arbitrary `f` and conditions only on `f`, the earlier part of the transcript (including `T`, `C`, claims, `gamma`) does not matter beyond fixing `f_(i-1)`. Checked.
    Thm 5.2's `eps_mca` is evaluated at the **folded** code `C_i` (domain `L_i`), so Lemma 2.4's `|L|` is `|L_i| <= 4096`, which is the value used in section 3 (this closes the layer-size question in open question 4, as far as the reading of the lemma goes; Lemma 2.4 itself is quoted from [BCH+25], unread). Also `theta = delta' = 0.4374 < 1 - sqrt(rho) = 0.646`, as Lemma 2.4 requires.
@@ -244,30 +244,33 @@ Queries needed, `ceil((lambda + log2 Q_H)/0.830)`: `lambda = 80`: 145 / 174 / 19
 Johnson-radius alternative (FRI alone, BCIKS Thm 7.2, `eta = sqrt(rho)/20`): `1.430` bits per query would give `ceil((lambda + log2 Q_H)/1.43)` queries, e.g. 98 for `lambda = 100`, `log2 Q_H = 40`. This row would apply to the protocol only after a
 list-decoding DEEP/ALI step is established; it is **not** used for any parameter decision.
 
-## 8. Classification
+## 8. Classification (current as of 6A-6C)
 
-**Proved by a theorem I read (statement level; proofs not checked):** BCIKS Thm 1.7/1.2 (correlated agreement and gap, UD and Johnson); BCIKS Thm 7.2 (interactive FRI soundness with `eps_C` and `(1 - delta)^t`);
-Garreta Thm 5.2 (RBR soundness of FRI for an oracle `f_0`, given MCA for Powers, Lemma 2.4 quoted from [BCH+25]).
+**Statements read in the sources (proofs not checked):** BCIKS Thm 1.7/1.2 (correlated agreement and gap, UD and Johnson); BCIKS Thm 7.2 (interactive FRI soundness); Garreta et al. Thm 5.2 and Lemma 5.1 (RBR soundness of FRI for a fixed oracle `f_0`), Lemma 2.4 (MCA error for Powers, quoted by them from [BCH+25]).
 
-**Derived by me, unreviewed:** section 5 (one DEEP step plus FRI, unique decoding); the RBR state-function sketch for the outer rounds; the numbers in sections 3, 4, 7.
+**Derived by me, awaiting independent review:** section 5 (one DEEP step plus FRI, unique decoding); section 6A (virtual oracle and predicate comparison with Construction 4.4); sections 6B-6C (outer state function with the four properties of Definition 3.4, hand-over to `State_theta`, `alpha` and `z` arguments); the numbers in sections 3, 4, 7. The interactive round-by-round result of 6B is a derived argument, not an established theorem.
 
-**Conditional / open:** RBR gluing for the full protocol with lazily computed `f_0`; formal RBR => FS theorem (CCH+19/Hol19, unread); MCA for Powers (Lemma 2.4 is quoted from [BCH+25], unread);
-a list-decoding DEEP/ALI step for any `delta > delta_U`; review of the outer state function and its Definition 3.4 check (section 6B); writing the chained index derivation into the query-round state function (uniform and, in the random-oracle model, independent: see section 6).
+**Open, not derived:**
+- formal RBR => Fiat-Shamir (BCS-compiled, Merkle-based) with the loss `sum Q_i eps_i`, and extraction of the oracles from the Merkle trees (sources unread: BCS16 typeset, CCH+19, Hol19); the argument-string-to-IOP-transcript mapping belongs to this step;
+- independent verification of the proof of Garreta Thm 5.2, and the MCA error of Lemma 2.4 at its source [BCH+25] (unread);
+- a list-decoding DEEP/ALI step for any `delta > delta_U`;
+- the link from the AIR statement to "committed `n` is prime";
+- zero knowledge.
 
 **Conjectural:** any exponent above the Johnson radius (the 3 bits/query, 120-bit row; BCIKS Conjecture 7.3 is the relevant statement for the FRI part).
 
-**Not established by the implementation:** zero knowledge with 40 correlated queries plus Fiat-Shamir; SHA-256 as a random oracle; full knowledge soundness / extraction; the small-field attack literature (Fenzi 2025, unread) applies to small fields and the field here is 251 bits, but I have not read it.
+**Not established by the implementation:** zero knowledge with 40 correlated queries plus Fiat-Shamir; SHA-256 as a random oracle; full knowledge soundness / extraction; the small-field literature (Fenzi 2025, unread) concerns small fields and the field here is 251 bits.
 
-## 9. Edits made to SPEC.md 3.4 (docs only) and still recommended
+## 9. Edits to SPEC.md 3.4 (docs only)
 
-Made: `|F| ~ 2^251`, OOD `2^-239`; DEEP bullet references this audit and the 317-term/160-oracle distinction; Fiat-Shamir bullet made conditional; Johnson row relabelled "conditional"; 160-query target removed.
-Done in revision 2: BCIKS theorem number corrected (7.2); Johnson row now cites that Thm 7.2 gives 57.2 bits for FRI alone, whole-protocol exponent stays 0.83 until a list-decoding DEEP step exists.
-Still to do: a reviewer should check section 5 line by line; the RBR gluing and the index derivation need proofs or tests before any figure is called a bound.
+Made: `|F| ~ 2^251`, OOD `2^-239`; intro rewritten (theorem statements read; proofs, composition and Fiat-Shamir not independently checked); DEEP bullet refers to this audit and says batching adds no factor under Thm 1.7; Fiat-Shamir bullet made conditional; Johnson row relabelled "conditional estimate for plain FRI only"; 160-query target removed.
+No further SPEC edits are pending. Pending work is review of sections 5-6C and the open items of section 8; no figure is to be called a bound before that.
 
 ## 10. Open questions for a reviewer
 
-1. Is section 5(b) correct that Thm 1.7's common agreement set makes the two DEEP quotients of the same `T_c` consistent in unique decoding?
-2. Does a state function exist for the whole protocol with lazily computed `f_0` and the stated per-round errors (Garreta Thm 5.2 is for an oracle `f_0`; Appendix A covers batched FRI by powers, not independent coefficients)?
+1. Is section 5(b) correct that Thm 1.7's common agreement set, with `delta' = delta_U - 1/n0`, makes the two DEEP quotients of the same `T_c` agree and fixes the extracted polynomials by the roots?
+2. Is the outer state function of 6B correct (definitions, the four properties of Definition 3.4, the hand-over to `State_theta` with `theta = delta'`), in particular the `gamma`-round flip condition and the "close branch is rejected by the identity check" argument?
 3. Which list-decoding DEEP/ALI statement (BGKS Lemma 5.3, Haboeck 2022/1216, ethSTARK) covers `delta > delta_U` with 160 columns and two out-of-domain points, and what is its list-size term?
-4. Is the MCA error of Garreta Lemma 2.4 / [BCH+25] correct as quoted, for `m = 2`, rate `1/8`, `|L| = |L_i| <= 4096`? (The use of `|L_i|` follows Lemma 5.1; the formula itself is unread at source.)
+4. Is the MCA error of Garreta Lemma 2.4 / [BCH+25] correct as quoted? (The layer-size question, `|L| = |L_i|`, is settled by the reading of Lemma 5.1 in 6C; the formula itself is unread at source.)
 5. Is the random-oracle argument for the chained query indices (section 6) accepted as covering the independent-index assumption of Thm 7.2 / Thm 5.2?
+6. Which formal theorem gives RBR => soundness of the Merkle-compiled non-interactive argument with loss `sum Q_i eps_i`, and what does its oracle-extraction step assume?
