@@ -243,7 +243,8 @@ is recomputed at each queried position from the Merkle-checked openings. (iii) F
 | up to capacity (conjectured) | `1 - rho = 0.875` | 3 | about 120 bits | 27 / 34 / 43 |
 
 So what can be justified from known theorems for the current parameters is far below the conjectured 120 bits: about 33 bits in the
-unique-decoding regime and about 60 bits at the Johnson radius. Because Fiat-Shamir costs `log2(Q_H)` bits, those proved
+unique-decoding regime (a candidate proved bound, conditional on the audit's open items) and, at the Johnson radius, only an unchecked
+conditional estimate of 40 to 60 bits. If Fiat-Shamir costs `log2(Q_H)` bits (itself unestablished for this protocol), these
 bounds do not by themselves exclude a forger who can afford `2^33` to `2^60` hash evaluations. No such attack on these parameters
 is known to me, and the table does not show one; it shows that this implementation's security claim currently rests on the
 conjectured regime. Raising `QUERIES` (the cost grows linearly in proof size and verification time) or adding grinding would
