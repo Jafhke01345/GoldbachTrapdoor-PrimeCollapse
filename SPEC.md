@@ -208,7 +208,7 @@ and require it to equal `cz_0 + z^N cz_1 + z^(2N) cz_2`. (ii) DEEP: the function
 is recomputed at each queried position from the Merkle-checked openings. (iii) FRI: each query's folding chain
 `F -> layer 1 -> ... -> layer 6 -> final polynomial` is checked, with `fold(a, b) = (a + b)/2 + beta (a - b)/(2x)`.
 
-**Error terms.** Write `|F| = p ~ 2^252`.
+**Error terms.** Write `|F| = p ~ 2^251`.
 - *Binding (Merkle).* The roots bind the committed words unless SHA-256 collisions are found. Assumed.
 - *Constraint combination.* Suppose the committed `T_c` (degree `< N`, fixed before step 2) violate some active transition constraint `i`
   at a point `g^r` of `H` (`A(g^r) C_i(g^r) != 0`) or some boundary condition `T_(c_b)(g^(r_b)) != v_b`. The residue of the rational
@@ -218,15 +218,18 @@ is recomputed at each queried position from the Merkle-checked openings. (iii) F
   probability `1/|F|` over the `alpha`s. Otherwise `CP` has a pole and is not a polynomial. Error `<= 1/|F|`.
 - *Out-of-domain identity.* If `CP` is not a polynomial and the pieces `cp_i` have degree `< N`, then `CP(X) - sum_i X^(N i) cp_i(X)` is a
   nonzero rational function; multiplying by `X^N - 1` gives a nonzero polynomial of degree at most `4N - 1`, so the identity of check (i)
-  holds at the random `z` (chosen after `root_c`) with probability at most `(4N - 1) / (|F| - N - n0)`, about `2^-240` for `N = 1024`.
+  holds at the random `z` (chosen after `root_c`) with probability at most `(4N - 1) / (|F| - N - n0)`, about `2^-239` for `N = 1024`.
   This step is stated for the true values `T_c(z)`, `cp_i(z)` of the committed polynomials; the next step ties the claimed values to them.
-- *DEEP and low degree.* If the claimed values `tz`, `tgz`, `cz` are not the true evaluations of low-degree polynomials that the Merkle
+- *DEEP and low degree.* (This bullet is a summary; `AUDIT_FRI_SOUNDNESS.md` section 5 lists what must be separated: the batching gap for 163
+  functions, the DEEP out-of-domain step with its list-size term, and plain-FRI terms. The implementation is one DEEP step followed by plain
+  FRI, not the per-round DEEP of DEEP-FRI Protocol 5.4, so DEEP-FRI Theorem 5.5 does not apply as stated.) If the claimed values `tz`, `tgz`, `cz` are not the true evaluations of low-degree polynomials that the Merkle
   commitments are close to, or the committed words are far from degree `< N`, then for random `gamma`, `gamma2`, `delta` the function
   `F` is far from the Reed-Solomon code of degree `< N - 1` on `D`, except with the probability of the proximity-gap theorem
   (`eps_gap`, which depends on the proximity radius and is negligible in a 252-bit field up to the Johnson radius). FRI then
   accepts a word that is `delta`-far from the code with probability at most `(1 - delta)^40` plus commit-phase terms that are also
   negligible in this field. The `gamma`, `gamma2`, `delta` are drawn after the claimed values (step 6 follows step 5).
-- *Fiat-Shamir.* In the random-oracle model, round-by-round soundness gives (by a union bound over the adversary's attempts) a
+- *Fiat-Shamir.* Conditional on round-by-round soundness of this protocol, which has not been established (the state-restoration route of
+  Ben-Sasson, Chiesa and Spooner gives a bound that is vacuous at these parameters; see `AUDIT_FRI_SOUNDNESS.md` section 6), in the random-oracle model a
   success probability of at most `Q_H` times the single-attempt error, where `Q_H` is the number of hash evaluations the adversary
   makes. In bits this costs `log2(Q_H)`: bits of security = (bits of the single-attempt bound) - `log2(Q_H)`. It does not multiply the
   security bits by the number of hashes. For example, a single-attempt bound of 33 bits leaves 33 - 40 < 0 bits against an
@@ -237,7 +240,7 @@ is recomputed at each queried position from the Merkle-checked openings. (iii) F
 | Regime | Proximity radius `delta` | `-log2(1 - delta)` per query | 40 queries | Queries for 80 / 100 / 128 bits |
 | --- | --- | --- | --- | --- |
 | unique decoding (proved) | `(1 - rho)/2 = 0.4375` | 0.83 | about 33 bits | 97 / 121 / 155 |
-| Johnson radius (proved, with larger commit-phase terms) | `1 - sqrt(rho) = 0.646` | 1.5 | about 60 bits | 54 / 67 / 86 |
+| Johnson radius (proved only if the plain-FRI theorem of BCIKS section 8 gives this exponent: unchecked; the DEEP-FRI per-query floor `rho^(1/3)` would give 1.0 bit, 40 bits) | `1 - sqrt(rho) = 0.646` | 1.5 | about 60 bits | 54 / 67 / 86 |
 | up to capacity (conjectured) | `1 - rho = 0.875` | 3 | about 120 bits | 27 / 34 / 43 |
 
 So what can be justified from known theorems for the current parameters is far below the conjectured 120 bits: about 33 bits in the
@@ -248,8 +251,7 @@ conjectured regime. Raising `QUERIES` (the cost grows linearly in proof size and
 move the proved bound; this has not been done.
 
 Parameter status: `QUERIES = 40`, `BLOWUP = 8` is an experimental setting and the protocol must not be described as having
-100-bit soundness. A provisional target of 160 queries (about 133 bits per the unique-decoding per-query figure, leaving room for
-the other terms and for `log2(Q_H)`) is under consideration; it is a target, not a security claim for the whole protocol. The
+100-bit soundness. No query count is a target until the theorem audit (`AUDIT_FRI_SOUNDNESS.md`) is closed: for example 160 queries give about 133 bits single-attempt in unique decoding but only about 69 bits against `2^64` hash evaluations, if round-by-round soundness holds. The
 order of work is: first check the exact DEEP and FRI theorem statements and constants against the cited papers, then fix the
 query count, then recompute the combined bound, the proof size and the verification cost. The number is not changed to make the table
 look stronger.
