@@ -226,8 +226,11 @@ is recomputed at each queried position from the Merkle-checked openings. (iii) F
   (`eps_gap`, which depends on the proximity radius and is negligible in a 252-bit field up to the Johnson radius). FRI then
   accepts a word that is `delta`-far from the code with probability at most `(1 - delta)^40` plus commit-phase terms that are also
   negligible in this field. The `gamma`, `gamma2`, `delta` are drawn after the claimed values (step 6 follows step 5).
-- *Fiat-Shamir.* In the random-oracle model the soundness error is multiplied by the number `Q_H` of hash evaluations the adversary
-  makes (round-by-round soundness).
+- *Fiat-Shamir.* In the random-oracle model, round-by-round soundness gives (by a union bound over the adversary's attempts) a
+  success probability of at most `Q_H` times the single-attempt error, where `Q_H` is the number of hash evaluations the adversary
+  makes. In bits this costs `log2(Q_H)`: bits of security = (bits of the single-attempt bound) - `log2(Q_H)`. It does not multiply the
+  security bits by the number of hashes. For example, a single-attempt bound of 33 bits leaves 33 - 40 < 0 bits against an
+  adversary that can afford `2^40` hash evaluations.
 
 **Query-phase bits, rate `rho = 1/8` (degree `< N` on a domain of size `8N`), 40 queries.**
 
@@ -238,11 +241,18 @@ is recomputed at each queried position from the Merkle-checked openings. (iii) F
 | up to capacity (conjectured) | `1 - rho = 0.875` | 3 | about 120 bits | 27 / 34 / 43 |
 
 So what can be justified from known theorems for the current parameters is far below the conjectured 120 bits: about 33 bits in the
-unique-decoding regime and about 60 bits at the Johnson radius. Because Fiat-Shamir multiplies the bound by `Q_H`, those proved
+unique-decoding regime and about 60 bits at the Johnson radius. Because Fiat-Shamir costs `log2(Q_H)` bits, those proved
 bounds do not by themselves exclude a forger who can afford `2^33` to `2^60` hash evaluations. No such attack on these parameters
 is known to me, and the table does not show one; it shows that this implementation's security claim currently rests on the
 conjectured regime. Raising `QUERIES` (the cost grows linearly in proof size and verification time) or adding grinding would
 move the proved bound; this has not been done.
+
+Parameter status: `QUERIES = 40`, `BLOWUP = 8` is an experimental setting and the protocol must not be described as having
+100-bit soundness. A provisional target of 160 queries (about 133 bits per the unique-decoding per-query figure, leaving room for
+the other terms and for `log2(Q_H)`) is under consideration; it is a target, not a security claim for the whole protocol. The
+order of work is: first check the exact DEEP and FRI theorem statements and constants against the cited papers, then fix the
+query count, then recompute the combined bound, the proof size and the verification cost. The number is not changed to make the table
+look stronger.
 
 **Zero knowledge (argued).** The verifier sees 40 queries, each opening two positions of every column, so 80 evaluations
 of each `T_c` on `D`, plus the two out-of-domain evaluations at `z` and `g z`: 82 evaluations per column, none on `H`. Each `T_c` contains
