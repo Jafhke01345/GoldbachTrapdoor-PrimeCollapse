@@ -163,7 +163,7 @@ Columns (29 named, 157 including bit columns), 183 constraints, degree 3. A trac
 
 Public input: the curve point `C`. Proof: a hash-based STARK with DEEP composition and FRI over the Merkle trees above.
 Soundness and zero knowledge: see section 3.4. In short, the algebraic steps are argued with explicit error terms; the
-FRI query phase supports about 33 bits (unique decoding) to about 60 bits (Johnson radius) with what I could justify, and the
+FRI query phase supports about 33 bits in the unique-decoding regime (conditional on the audit's open items); a Johnson-radius figure of 40 to 60 bits is only an unchecked conditional estimate, and the
 figure of about 120 bits rests on a conjecture. Zero knowledge is argued, not proven.
 
 Removal checks: for each constraint family a forged trace violates exactly that family (57 isolated cheats); the
@@ -220,8 +220,7 @@ is recomputed at each queried position from the Merkle-checked openings. (iii) F
   nonzero rational function; multiplying by `X^N - 1` gives a nonzero polynomial of degree at most `4N - 1`, so the identity of check (i)
   holds at the random `z` (chosen after `root_c`) with probability at most `(4N - 1) / (|F| - N - n0)`, about `2^-239` for `N = 1024`.
   This step is stated for the true values `T_c(z)`, `cp_i(z)` of the committed polynomials; the next step ties the claimed values to them.
-- *DEEP and low degree.* (This bullet is a summary; `AUDIT_FRI_SOUNDNESS.md` section 5 lists what must be separated: the batching gap for 163
-  functions, the DEEP out-of-domain step with its list-size term, and plain-FRI terms. The implementation is one DEEP step followed by plain
+- *DEEP and low degree.* (This bullet is a summary; `AUDIT_FRI_SOUNDNESS.md` section 5 lists what must be separated: the batching gap (317 DEEP terms over 160 committed oracles; what the theorem's batching parameter counts is open), the DEEP out-of-domain step with its list-size term, and plain-FRI terms. The implementation is one DEEP step followed by plain
   FRI, not the per-round DEEP of DEEP-FRI Protocol 5.4, so DEEP-FRI Theorem 5.5 does not apply as stated.) If the claimed values `tz`, `tgz`, `cz` are not the true evaluations of low-degree polynomials that the Merkle
   commitments are close to, or the committed words are far from degree `< N`, then for random `gamma`, `gamma2`, `delta` the function
   `F` is far from the Reed-Solomon code of degree `< N - 1` on `D`, except with the probability of the proximity-gap theorem
@@ -239,7 +238,7 @@ is recomputed at each queried position from the Merkle-checked openings. (iii) F
 
 | Regime | Proximity radius `delta` | `-log2(1 - delta)` per query | 40 queries | Queries for 80 / 100 / 128 bits |
 | --- | --- | --- | --- | --- |
-| unique decoding (proved) | `(1 - rho)/2 = 0.4375` | 0.83 | about 33 bits | 97 / 121 / 155 |
+| unique decoding (candidate proved bound; conditional on audit items) | `(1 - rho)/2 = 0.4375` | 0.83 | about 33 bits | 97 / 121 / 155 |
 | Johnson radius (proved only if the plain-FRI theorem of BCIKS section 8 gives this exponent: unchecked; the DEEP-FRI per-query floor `rho^(1/3)` would give 1.0 bit, 40 bits) | `1 - sqrt(rho) = 0.646` | 1.5 | about 60 bits | 54 / 67 / 86 |
 | up to capacity (conjectured) | `1 - rho = 0.875` | 3 | about 120 bits | 27 / 34 / 43 |
 
@@ -321,7 +320,7 @@ is rejected by the binding to `Ca` and `Cb` (checked in the self-test).
 1. Discrete log is hard in the repository group and on the Stark curve, and `log_g h`, `log_G H` are unknown (random-oracle
    assumption on the hashes; not provable).
 2. SHA-256 behaves as a random oracle in all Fiat-Shamir transcripts and in the STARK.
-3. FRI soundness for the current parameters is established only in the conjectured regime (about 120 bits); the proved regimes give about 33 to 60 bits for 40 queries (section 3.4). Zero knowledge of the STARK is argued with random padding.
+3. FRI soundness for the current parameters is established only in the conjectured regime (about 120 bits); only the unique-decoding figure of about 33 bits is a candidate proved bound (itself conditional, see AUDIT_FRI_SOUNDNESS.md); the Johnson-radius 40 to 60 bits is an unchecked conditional estimate (section 3.4). Zero knowledge of the STARK is argued with random padding.
 4. The primality of `P`, `Q`, `p` and `Q_C` is proven by deterministic certificates (section 1.3). That a parameter is prime says nothing
    about the strength of the curve beyond its published design.
 5. Range only to 64 bits; the Pocklington profile is fixed at five tiers, so the chain length is public.

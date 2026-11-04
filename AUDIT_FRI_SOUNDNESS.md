@@ -88,9 +88,17 @@ conditional statement about BCIKS Theorem 8.3. Revise the row label from "proved
 SPEC 3.4 "DEEP and low degree" bullet says that `F` is far from RS except with probability `eps_gap`, "then FRI accepts ... with probability at
 most `(1-delta)^40` plus commit-phase terms". Problems:
 
-1. The batching of 160 functions (157 columns at two points, 3 pieces) with independent coefficients is a statement about
-   correlated agreement for **many** functions. BCIKS handles `l` functions in Theorems 1.5/1.6; the exact error as a function of
-   `l = 163` must be inserted (it does not change the order of magnitude: even a factor `l * k` is `< 2^20`, so `eps` stays `< 2^-210`).
+1. **Batching count (corrected).** Three different numbers exist and must not be interchanged:
+   - 160 distinct committed oracles: 157 trace columns `T_c` (root_t) and 3 pieces `cp_i` (root_c);
+   - **317 terms in `F`**, each with its own independent coefficient: 157 `(T_c - tz_c)/(X - z)` (gamma_c), 157 `(T_c - tgz_c)/(X - gz)`
+     (gamma2_c), 3 `(cp_i - cz_i)/(X - z)` (delta_i). These are 317 words on `D` computed by the verifier from Merkle openings;
+   - the earlier "163" in this audit was an arithmetic error and is withdrawn.
+   What the theorem's batching parameter `l` counts is **not established**: BCIKS Theorems 1.5/1.6 are stated for `l` words `f_1..f_l`
+   combined with a random challenge (powers of one challenge or independent coefficients; to be read in the typeset statement). If it counts
+   the words being combined, the substitution is `l = 317`, each word being a quotient that has degree `< N - 1` when the claimed
+   value is correct; if the proof needs the 160 underlying oracles (for example because the two quotients of the same `T_c` are not
+   independent words), `l = 160` or a two-point extension is needed. Open until the exact statement is read. Order of magnitude: any
+   factor `l * k` is `< 2^19`, so `eps` stays `< 2^-210` in either reading.
 2. The "claimed values are the true evaluations" step (BGKS Lemma 5.3 / Theorem 4.1) has an extra list-size term and a radius condition.
    SPEC 3.4 folds it into one `eps_gap`. Write it as a separate term `eps_deep = (list size)^2 / (p - n0 - N)`; in unique decoding
    the list size is 1.
@@ -153,7 +161,7 @@ described as a target until the theorem questions in section 8 are closed.
 unique-decoding proximity-gap term `n0/p`, constraint-degree bookkeeping, `ZK` argument is a sketch (not proved).
 
 **Conditional on a theorem I could not read:** the plain-FRI soundness statement with query exponent `(1 - delta)^l` at the Johnson
-radius (BCIKS Theorem 8.3), the list-size term for the DEEP step beyond unique decoding, the batching constant for `l = 163` functions
+radius (BCIKS Theorem 8.3), the list-size term for the DEEP step beyond unique decoding, the batching constant for the 317-term DEEP combination (what `l` counts is open)
 with independent coefficients, round-by-round soundness of the whole protocol.
 
 **Conjectural:** any per-query exponent above the Johnson radius (the 120-bit row), and the capacity-regime applicability at this
@@ -167,7 +175,7 @@ replacement); that no cheating prover profits from the weaker factor-q condition
 ## 9. Edits to SPEC.md 3.4 recommended by this audit
 
 1. "`|F| = p ~ 2^252`" and "about `2^-240`": replace by `p ~ 2^251`, `2^-239`.
-2. "DEEP and low degree" bullet: split into (a) batching gap (BCIKS Thm 1.5/1.6, `l = 163`), (b) DEEP OOD step (BGKS Lemma 5.3, list-size
+2. "DEEP and low degree" bullet: split into (a) batching gap (BCIKS Thm 1.5/1.6; `l` = 317 terms or 160 oracles, open), (b) DEEP OOD step (BGKS Lemma 5.3, list-size
    term), (c) plain-FRI commit and query terms; state that the implementation is one DEEP step plus plain FRI, **not** DEEP-FRI Protocol 5.4.
 3. "Fiat-Shamir" bullet: state that the `log2(Q_H)` loss requires round-by-round soundness for this protocol, that BCS16's
    state-restoration route gives a vacuous bound at these parameters, and that RBR soundness has not been checked for it.
