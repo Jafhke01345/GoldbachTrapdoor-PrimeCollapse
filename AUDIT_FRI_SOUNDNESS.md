@@ -122,6 +122,65 @@ the argument uses that `FRI` tests degree `< N` while honest `F` has degree `<= 
 - The transcript absorbs the statement hash first; this prevents reuse across statements but gives no extra grinding bits. Prover-side grinding of `b` bits is not implemented; if added it would add `b` bits against an adversary counted in hash evaluations.
 - Query indices (`stark_core.Transcript.index`): `h <- SHA256(h || "i")`, `j0 = int(h) mod 4096`, so `j0` is exactly uniform given a uniform digest (4096 is a power of two). In the random-oracle model, index `i` is the output of the oracle on the previous digest (distinct inputs unless a state repeats, probability `<= Q_H^2/2^256`), so the 40 indices are independent uniform, matching the independent `s_j <- L_0` assumed by BCIKS Thm 7.2 and Garreta Constr. 4.4, **conditional on the model**. The chain is therefore not an obstacle; what remains is the formal write-up inside the RBR query-round state function, and note that each grinding attempt costs about 40 oracle calls (this only helps against the adversary and is not counted). Field challenges: 768 bits mod `p` (bias `2^-517`).
 
+### 6A. Virtual oracle `F` and the Garreta query round (derived; the state-function gluing below is a sketch, not a proof)
+
+**What Garreta's query analysis depends on.** In Thm 5.2 the query-round probability is `(|AccQueries|/|L_0|)^t` (their equation (9)) where
+`AccQueries = { z in L_0 : for all i, Fold(f_{i-1}, m_i, alpha_i)(z^(i)) = f_i(z^(i)) }` for the **fixed** functions `f_0, ..., f_k` and challenges `alpha_i`.
+Everything after that (Claims 5.3-5.5, the case split on the sets `W_i`) is a statement about this set and about `Delta(f_0, C_0)`. It does not use how `f_0` is represented,
+only that `f_0` is a fixed function `L_0 -> F` before the query indices are sampled. This is why lazy evaluation is not by itself an obstacle.
+
+**Virtual-oracle lemma (derived).** Once `root_t`, `root_c`, the claims `tz, tgz, cz` and the DEEP coefficients are fixed (all before the first folding challenge), the function
+`F(x) = sum_c gamma_c (T_c(x) - tz_c)/(x - z) + sum_c gamma2_c (T_c(x) - tgz_c)/(x - gz) + sum_i delta_i (cp_i(x) - cz_i)/(x - z)`, `x in D`, is a total function of the two committed
+vectors and the fixed values (denominators are nonzero since `z, gz notin D`). The verifier's value at a query position `j` is computed from the `W + k` entries it
+opens at leaf `j` of the two trees. Hence: *except on a Merkle-binding failure event, every accepted opening at position `j` returns the leaf values of the committed vectors, so the verifier's value at `j` equals `F(x_j)` for the single virtual `F`.*
+In the IOP model that BCS16 compiles, `T` and `cp` are oracles and `F` is a function the verifier evaluates with two position queries per point (one pair `j0`, `j0 + n0/2`).
+
+**Predicate comparison (implementation `stark_core.verify` against Garreta Construction 4.4).**
+
+| Item | Implementation | Construction 4.4 / Thm 5.2 | Matches |
+| --- | --- | --- | --- |
+| `f_0` | virtual `F` on `L_0 = D` (coset `3<w>`) | oracle `f_0` on a coset | yes (virtual oracle, above) |
+| block of query `s` | positions `j0` and `j0 + n0/2` = `x` and `-x` (`om^(n0/2) = -1`) | `Block(L_0, 2, s^2) = {s, -s}` | yes |
+| fold | `(a + b)/2 + beta (a - b)/(2x)` | `Fold(f, 2, alpha)(x^2) = p_{f,x^2}(alpha)`, `p` the degree `< 2` interpolant through `(x, a), (-x, b)` | yes (algebra: `c_0 = (a+b)/2`, `c_1 = (a-b)/(2x)`) |
+| local fold checks | layer `l` value compared with `Fold` of layer `l-1` at the block, layers 1..6 against committed leaves, layer 7 against `final(x)` | `Fold(f_{i-1}, m_i, alpha_i)(s^(i)) = f_i(s^(i))`, `i = 1..k`, `k = 7` | yes |
+| final check | `final` has exactly 8 coefficients, so `f_7 in C_7`; compared at the folded point | `f_k` read in full, `f_k in C_k` | yes |
+| challenge order | `beta_l` drawn after the previous root is absorbed; `final` absorbed before the indices | `alpha_i` before `f_i`; queries last | yes (checked in the transcript order of `verify`) |
+| query sampling | 40 indices `j0`, uniform given the oracle, chained (section 6) | `s_1..s_t <- L_0` independent | yes in the random-oracle model |
+| acceptance | all 40 chains pass | `s_j in AccQueries` for all `j` | yes: `AccQueries` is closed under `z -> -z`, and uniform `j0` on `[0, n0/2)` induces the same acceptance probability `(|AccQueries|/n0)^t` |
+
+So the query round of the implementation equals the query round of Theorem 5.2 for the virtual `F`, with parameters `theta` free (to be set to `delta'`), folding factors `m_i = 2`, `k = 7`, `t = 40`. I checked this by reading
+the verifier, not by a machine check; the completeness tests of the repository exercise the same arithmetic.
+
+**Separate failure events (not absorbed into Garreta's theorem).** (i) Merkle binding / collision (random oracle, `Q_H^2/2^257`); (ii) the extraction of the oracles from the Merkle trees in the BCS16 compilation (standard; BCS16 Theorem 2/3 additive term, reconstructed, unread in typeset form).
+
+**State function for the whole protocol (sketch).** Order of messages: `root_t`, `alpha`, `root_c`, `z`, claims `(tz, tgz, cz)`, `gamma`, `beta_1`, root_1, ..., `beta_7`, `final`, query indices.
+Verifier rounds and their lucky-event errors (state starts 0 for a false statement; it never goes back to 0):
+
+| Round | State becomes 1 iff | Error | Source |
+| --- | --- | --- | --- |
+| `alpha` | the `delta'`-close polynomials `P_c` of `root_t` exist, violate a constraint or boundary, yet all residues of `CP_P` cancel | `1/p` | linear form in `alpha` (SPEC 3.4) |
+| `z` | `P_c`, `R_i` exist and `CP_P != sum X^(Ni) R_i` as rational functions but the identity holds at `z` | `(4N + O(1))/(p - N - n0 - 1)` | Schwartz-Zippel |
+| `gamma` | `F` is `delta'`-close to `V` although `P`, `R` fail to exist or a claim is not the evaluation of them | `eps_U + 1/p` | BCIKS Thm 1.7 plus 5(a)-(b) |
+| `beta_l`, `l = 1..7` | Garreta's `State_theta`, `theta = delta'`, `f_0 = F` (only entered when `F` is `delta'`-far) | `eps_mca(C_l, 2, delta') ~ 2^-226` | Garreta Thm 5.2, Lemma 2.4 |
+| query | all `s_j in AccQueries` while `F` is `delta'`-far | `(1 - delta')^40` | Garreta Thm 5.2 |
+
+Why the pieces should fit: (1) if `F` is `delta'`-close and the `gamma` flip did not occur, then `P`, `R` exist and the claims are the true evaluations; the verifier's identity check at `z` then fails unless the `z` or `alpha` flip occurred, so a state-0 transcript is rejected; (2) if `F` is `delta'`-far, Garreta's state governs and a state-0 full transcript is rejected by Garreta's theorem.
+Each flip depends only on the transcript up to the verifier's message (claims precede `gamma`), so "prover moves" does not change the state.
+
+**Not proved.** (a) That the three outer definitions satisfy all four properties of Definition 3.4 simultaneously (empty transcript, prover moves, full transcript, default) with the stated errors; I have only checked the intended behavior above. (b) That Garreta's `State_theta` can be started at the `gamma` round from an arbitrary `F` that is `delta'`-far (his state function starts with `State(f_0, empty) = 1` iff `f_0 in C_0`, defined at the beginning of the protocol); the hand-over uses only that the folding and query states are defined for any fixed `f_0`.
+(c) The formal theorem RBR => Fiat-Shamir in the ROM ([CCH+19, Hol19], unread) and the BCS16-style extraction of the oracles. (d) Zero knowledge is unaffected by this section.
+
+Status table:
+
+| Claim | Status |
+| --- | --- |
+| `F` is a total function fixed before the folding challenges | derived (from message order) |
+| Every accepted opening evaluates that same `F`, except on a binding failure | derived, conditional on Merkle binding |
+| The verifier's query/acceptance predicate equals Garreta's `AccQueries` predicate | checked by reading code, table above |
+| Garreta's query-round bound applies to this predicate | follows from Thm 5.2 as stated, given the previous row (proof not checked) |
+| The outer state function composes with Garreta's `State_theta` (Definition 3.4) | **open** (sketch above) |
+| Formal RBR => Fiat-Shamir, and extraction from Merkle trees | **open** (sources unread) |
+
 ## 7. Corrected combined calculation (conditional arithmetic, not a bound)
 
 Under the unique-decoding composition of section 5 and the RBR assumption of section 6:
@@ -146,7 +205,7 @@ Garreta Thm 5.2 (RBR soundness of FRI for an oracle `f_0`, given MCA for Powers,
 **Derived by me, unreviewed:** section 5 (one DEEP step plus FRI, unique decoding); the RBR state-function sketch for the outer rounds; the numbers in sections 3, 4, 7.
 
 **Conditional / open:** RBR gluing for the full protocol with lazily computed `f_0`; formal RBR => FS theorem (CCH+19/Hol19, unread); MCA for Powers (Lemma 2.4 is quoted from [BCH+25], unread);
-a list-decoding DEEP/ALI step for any `delta > delta_U`; writing the chained index derivation into the query-round state function (uniform and, in the random-oracle model, independent: see section 6).
+a list-decoding DEEP/ALI step for any `delta > delta_U`; the Definition 3.4 check of the outer state function (section 6A); writing the chained index derivation into the query-round state function (uniform and, in the random-oracle model, independent: see section 6).
 
 **Conjectural:** any exponent above the Johnson radius (the 3 bits/query, 120-bit row; BCIKS Conjecture 7.3 is the relevant statement for the FRI part).
 
