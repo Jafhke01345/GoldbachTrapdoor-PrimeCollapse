@@ -255,6 +255,15 @@ def _active(air, N):
     return [1 if r < air.n_real - 1 else 0 for r in range(N)]
 
 
+def _ood_point(tr, N, n0):
+    """The out-of-domain point z: never 0 (then z = g z and the two DEEP points would coincide), never in the trace
+    domain (z^N = 1, where the quotient has its poles) and never in the evaluation coset (a point where F is not defined)."""
+    z = tr.field()
+    while z == 0 or pow(z, N, P) == 1 or pow(z * pow(COSET, -1, P) % P, n0, P) == 1:
+        z = tr.field()
+    return z
+
+
 # ============================================================================ prover
 def prove(air, rows, _force=False, _corrupt=0.0, _fri_cheat=False, _full_final=False):
     """rows: n_real lists of `width` field elements. Test hooks (they play a cheating prover):
@@ -326,9 +335,7 @@ def prove(air, rows, _force=False, _corrupt=0.0, _fri_cheat=False, _full_final=F
     root_c = tree_c[-1][0]
     tr.absorb(root_c)
 
-    z = tr.field()
-    while pow(z, N, P) == 1 or pow(z * pow(COSET, -1, P) % P, n0, P) == 1:
-        z = tr.field()
+    z = _ood_point(tr, N, n0)
     gz = g * z % P
     tz = [horner(coeffs_t[c], z) for c in range(w)]
     tgz = [horner(coeffs_t[c], gz) for c in range(w)]
@@ -456,9 +463,7 @@ def _verify(air, proof):
     n_b = len(air.boundary)
     alphas = [tr.field() for _ in range(air.n_constraints + n_b)]
     tr.absorb(proof["root_c"])
-    z = tr.field()
-    while pow(z, N, P) == 1 or pow(z * pow(COSET, -1, P) % P, n0, P) == 1:
-        z = tr.field()
+    z = _ood_point(tr, N, n0)
     gz = g * z % P
     tr.absorb_els(tz + tgz + cz)
     gam = [tr.field() for _ in range(w)]
@@ -638,6 +643,20 @@ def _selftest():
     x = secrets.randbelow(P)
     ev = coset_eval(a, 64)
     check("coset evaluation agrees with Horner", ev[5] == horner(a, COSET * pow(_root(64), 5, P) % P))
+
+    class _Stub:
+        def __init__(self, vals):
+            self.vals = list(vals)
+
+        def field(self):
+            return self.vals.pop(0)
+
+    Nt, n0t = 8, 64
+    in_domain = pow(_root(Nt), 3, P)                         # z^N = 1: a pole of the quotient
+    in_coset = COSET * pow(_root(n0t), 5, P) % P             # a point of the evaluation coset
+    check("the out-of-domain point is never 0, never in the trace domain, never in the evaluation coset",
+          _ood_point(_Stub([0, in_domain, in_coset, 12345]), Nt, n0t) == 12345)
+    check("a point outside all three sets is taken as it is", _ood_point(_Stub([777]), Nt, n0t) == 777)
 
     print("\n1) honest proofs")
     steps = 32

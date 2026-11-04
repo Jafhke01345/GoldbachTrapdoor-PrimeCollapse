@@ -162,12 +162,95 @@ Columns (29 named, 157 including bit columns), 183 constraints, degree 3. A trac
 - tier links (each `q` is the next tier's `n`) and the terminal value `q = 3`.
 
 Public input: the curve point `C`. Proof: a hash-based STARK with DEEP composition and FRI over the Merkle trees above.
-Soundness: **Assumed** (the usual conjectured FRI proximity bound; roughly 3 bits per query at rate 1/8, so an estimate of
-about 120 bits for 40 queries, which is not proven and was not reviewed). Zero knowledge: **Argued** (82 random padding rows
-exceed the number of queried positions, plus a random mask); not proven.
+Soundness and zero knowledge: see section 3.4. In short, the algebraic steps are argued with explicit error terms; the
+FRI query phase supports about 33 bits (unique decoding) to about 60 bits (Johnson radius) with what I could justify, and the
+figure of about 120 bits rests on a conjecture. Zero knowledge is argued, not proven.
 
 Removal checks: for each constraint family a forged trace violates exactly that family (57 isolated cheats); the
 self-test must reject each. The verifier's own checks were removed one at a time as well.
+
+### 3.4 Soundness and zero-knowledge argument (follows stark_core.py; unreviewed)
+
+This is my reading of the code and of the literature, written so that a reviewer can check it line by line. The exact theorem
+statements for the DEEP and FRI steps (Ben-Sasson, Kopparty and Saraf; Ben-Sasson, Carmon, Ishai, Kopparty and Saraf on proximity
+gaps) were not re-derived or looked up here; they must be checked against the cited versions. Nothing below is a proof of the
+whole protocol.
+
+**Objects.** `N` is the trace length (a power of two, at least `real_rows + 82`; for the 64-bit profile `real_rows = 824`, `N = 1024`).
+`H = <g>` is the multiplicative group of order `N`. The evaluation domain is `D = COSET * <w>`, `|D| = n0 = 8N`, with `COSET = 3`.
+There are `W = 157` trace columns; column `c` is the polynomial `T_c` of degree `< N` that interpolates the real rows on
+`g^0 .. g^(real_rows-1)` and uniform random field elements on the remaining `N - real_rows` points of `H`. The `m = 183` transition
+constraints `C_i(cur, nxt, pub)` have degree `<= 3` in their inputs; `cur = T(X)`, `nxt = T(gX)`, and the public columns `P_j`
+(selectors and the like, fixed by the statement) have degree `< N`. The selector `A(X)` has degree `< N`, equals 1 on
+`g^0 .. g^(real_rows-2)` and 0 on the other points of `H`. The `nb = 3` boundary conditions are `(c_b, r_b, v_b)`.
+
+**Quotient.** `CP(X) = A(X) * sum_i alpha_i C_i(T(X), T(gX), P(X)) / (X^N - 1) + sum_b alpha_(m+b) (T_(c_b)(X) - v_b) / (X - g^(r_b))`.
+For a valid trace the numerator of the first term vanishes on `H`, so `CP` is a polynomial of degree at most `3N - 4`
+(the numerator has degree at most `3(N-1) + (N-1)`), and the prover writes `CP = cp_0 + X^N cp_1 + X^(2N) cp_2` with each
+`cp_i` of degree `< N` (`k = 3` pieces, the constraint degree).
+
+**Order of messages** (all challenges are field elements from the SHA-256 transcript of `stark_core.Transcript`, which absorbs the
+statement hash first):
+1. prover sends `root_t` (Merkle root over the `n0` rows of `W` values `T_c(x)`, `x` in `D`);
+2. `alpha_1 .. alpha_(m+nb)`;
+3. prover sends `root_c` (the `k` pieces `cp_i` on `D`);
+4. out-of-domain point `z`, drawn again until `z != 0`, `z^N != 1` and `(z / COSET)^(n0) != 1` (`z != 0` makes `z` and `g z` distinct);
+5. prover sends the claimed values `tz_c = T_c(z)`, `tgz_c = T_c(g z)`, `cz_i = cp_i(z)`;
+6. DEEP coefficients `gamma_c`, `gamma2_c`, `delta_i`;
+7. FRI: for each of the `folds = 7` rounds a challenge `beta_l`, followed by the Merkle root of the folded layer (layers 1 to 6;
+   layer 0 is not committed, the verifier recomputes it from the openings of `root_t` and `root_c`); then the final polynomial
+   (at most 8 coefficients, sent in the clear);
+8. 40 query indices `j0` in `[0, n0/2)`; each query opens positions `j0` and `j0 + n0/2` of both trees and of every FRI layer.
+
+**Verifier checks.** (i) Out-of-domain identity: evaluate the constraints on `(tz, tgz, P(z))`, form the right-hand side of `CP` at `z`,
+and require it to equal `cz_0 + z^N cz_1 + z^(2N) cz_2`. (ii) DEEP: the function
+`F(X) = sum_c gamma_c (T_c(X) - tz_c)/(X - z) + sum_c gamma2_c (T_c(X) - tgz_c)/(X - g z) + sum_i delta_i (cp_i(X) - cz_i)/(X - z)`
+is recomputed at each queried position from the Merkle-checked openings. (iii) FRI: each query's folding chain
+`F -> layer 1 -> ... -> layer 6 -> final polynomial` is checked, with `fold(a, b) = (a + b)/2 + beta (a - b)/(2x)`.
+
+**Error terms.** Write `|F| = p ~ 2^252`.
+- *Binding (Merkle).* The roots bind the committed words unless SHA-256 collisions are found. Assumed.
+- *Constraint combination.* Suppose the committed `T_c` (degree `< N`, fixed before step 2) violate some active transition constraint `i`
+  at a point `g^r` of `H` (`A(g^r) C_i(g^r) != 0`) or some boundary condition `T_(c_b)(g^(r_b)) != v_b`. The residue of the rational
+  function `CP` at `g^r` is a linear form in the `alpha`s with at least one nonzero coefficient: the transition terms contribute
+  `A(g^r) sum_i alpha_i C_i(g^r) g^r / N` and the boundary terms contribute `alpha_(m+b) (T_(c_b)(g^r) - v_b)`. A transition violation and a
+  boundary violation can only cancel at the same point, and then only if that one nonzero linear form vanishes, which happens with
+  probability `1/|F|` over the `alpha`s. Otherwise `CP` has a pole and is not a polynomial. Error `<= 1/|F|`.
+- *Out-of-domain identity.* If `CP` is not a polynomial and the pieces `cp_i` have degree `< N`, then `CP(X) - sum_i X^(N i) cp_i(X)` is a
+  nonzero rational function; multiplying by `X^N - 1` gives a nonzero polynomial of degree at most `4N - 1`, so the identity of check (i)
+  holds at the random `z` (chosen after `root_c`) with probability at most `(4N - 1) / (|F| - N - n0)`, about `2^-240` for `N = 1024`.
+  This step is stated for the true values `T_c(z)`, `cp_i(z)` of the committed polynomials; the next step ties the claimed values to them.
+- *DEEP and low degree.* If the claimed values `tz`, `tgz`, `cz` are not the true evaluations of low-degree polynomials that the Merkle
+  commitments are close to, or the committed words are far from degree `< N`, then for random `gamma`, `gamma2`, `delta` the function
+  `F` is far from the Reed-Solomon code of degree `< N - 1` on `D`, except with the probability of the proximity-gap theorem
+  (`eps_gap`, which depends on the proximity radius and is negligible in a 252-bit field up to the Johnson radius). FRI then
+  accepts a word that is `delta`-far from the code with probability at most `(1 - delta)^40` plus commit-phase terms that are also
+  negligible in this field. The `gamma`, `gamma2`, `delta` are drawn after the claimed values (step 6 follows step 5).
+- *Fiat-Shamir.* In the random-oracle model the soundness error is multiplied by the number `Q_H` of hash evaluations the adversary
+  makes (round-by-round soundness).
+
+**Query-phase bits, rate `rho = 1/8` (degree `< N` on a domain of size `8N`), 40 queries.**
+
+| Regime | Proximity radius `delta` | `-log2(1 - delta)` per query | 40 queries | Queries for 80 / 100 / 128 bits |
+| --- | --- | --- | --- | --- |
+| unique decoding (proved) | `(1 - rho)/2 = 0.4375` | 0.83 | about 33 bits | 97 / 121 / 155 |
+| Johnson radius (proved, with larger commit-phase terms) | `1 - sqrt(rho) = 0.646` | 1.5 | about 60 bits | 54 / 67 / 86 |
+| up to capacity (conjectured) | `1 - rho = 0.875` | 3 | about 120 bits | 27 / 34 / 43 |
+
+So what can be justified from known theorems for the current parameters is far below the conjectured 120 bits: about 33 bits in the
+unique-decoding regime and about 60 bits at the Johnson radius. Because Fiat-Shamir multiplies the bound by `Q_H`, those proved
+bounds do not by themselves exclude a forger who can afford `2^33` to `2^60` hash evaluations. No such attack on these parameters
+is known to me, and the table does not show one; it shows that this implementation's security claim currently rests on the
+conjectured regime. Raising `QUERIES` (the cost grows linearly in proof size and verification time) or adding grinding would
+move the proved bound; this has not been done.
+
+**Zero knowledge (argued).** The verifier sees 40 queries, each opening two positions of every column, so 80 evaluations
+of each `T_c` on `D`, plus the two out-of-domain evaluations at `z` and `g z`: 82 evaluations per column, none on `H`. Each `T_c` contains
+`N - real_rows >= 82` independent uniform values on `H`; the map from those values to 82 evaluations outside `H` is
+onto for distinct points (a Vandermonde-type argument), so the evaluations are uniform and independent of the real rows. The pieces
+`cp_i`, the DEEP values and the FRI layers are functions of the `T_c`, so they add no information beyond what a simulator that
+samples uniform values and the final polynomial would produce. This is a sketch: it does not account for the correlation between
+queried positions and Fiat-Shamir, nor for the public statement, and was not reviewed.
 
 ## 4. Cross-group link (link_commitments.py)
 
@@ -226,7 +309,7 @@ is rejected by the binding to `Ca` and `Cb` (checked in the self-test).
 1. Discrete log is hard in the repository group and on the Stark curve, and `log_g h`, `log_G H` are unknown (random-oracle
    assumption on the hashes; not provable).
 2. SHA-256 behaves as a random oracle in all Fiat-Shamir transcripts and in the STARK.
-3. FRI soundness is the conjectured bound (not proven). Zero knowledge of the STARK is argued with random padding and a mask.
+3. FRI soundness for the current parameters is established only in the conjectured regime (about 120 bits); the proved regimes give about 33 to 60 bits for 40 queries (section 3.4). Zero knowledge of the STARK is argued with random padding.
 4. The primality of `P`, `Q`, `p` and `Q_C` is proven by deterministic certificates (section 1.3). That a parameter is prime says nothing
    about the strength of the curve beyond its published design.
 5. Range only to 64 bits; the Pocklington profile is fixed at five tiers, so the chain length is public.
